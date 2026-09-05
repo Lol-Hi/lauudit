@@ -22,6 +22,13 @@ def test_judiciary_source():
     assert result.status == "OFFICIAL_JUDICIARY_SOURCE"
 
 
+def test_singapore_law_watch_publisher_and_judgments_page():
+    source = classify_url("https://www.singaporelawwatch.sg/Portals/0/Docs/Judgments/2004-SGHC-171.pdf")
+    search = classify_url("https://www.singaporelawwatch.sg/Judgments")
+    assert source.status == "TRUSTED_PUBLISHER_SOURCE"
+    assert search.status == "TRUSTED_PUBLISHER_SEARCH_PAGE"
+
+
 def test_external_and_malformed_urls():
     external = classify_url("https://example.com/case/123")
     malformed = classify_url("not-a-url")
@@ -32,4 +39,3 @@ def test_external_and_malformed_urls():
 def test_lookalike_domain_is_not_official():
     result = classify_url("https://www.elitigation.sg.evil.example/case")
     assert result.status == "UNVERIFIED_EXTERNAL_URL"
-

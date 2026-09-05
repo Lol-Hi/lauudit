@@ -18,6 +18,8 @@ def test_audit_api(indexed_db):
     assert response.status_code == 200
     body = response.json()
     assert body["summary"]["total_citations"] == 1
+    assert body["corpus_snapshot"].startswith("snapshot-")
+    assert body["corpus_completeness"] == "partial"
     assert body["citations"][0]["canonical_name"] == "Lim v Tan"
     assert body["citations"][0]["name_matches"] is False
     assert body["citations"][0]["link_status"] == "LINK_CONFIRMS_CASE"

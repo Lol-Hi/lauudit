@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from typing import Optional
 from pathlib import Path
 
 
@@ -49,6 +50,41 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
         );
         CREATE INDEX IF NOT EXISTS idx_case_citations_normalized ON case_citations(normalized_citation);
         CREATE INDEX IF NOT EXISTS idx_case_aliases_normalized ON case_aliases(normalized_alias);
+        CREATE TABLE IF NOT EXISTS corpus_snapshots (
+            snapshot_id TEXT PRIMARY KEY,
+            cases_path TEXT NOT NULL,
+            cases_sha256 TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            completeness TEXT NOT NULL,
+            notes TEXT NOT NULL,
+            record_count INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS case_provenance (
+            snapshot_id TEXT NOT NULL REFERENCES corpus_snapshots(snapshot_id) ON DELETE CASCADE,
+            case_id TEXT NOT NULL REFERENCES cases(case_id) ON DELETE CASCADE,
+            document_path TEXT NOT NULL,
+            document_sha256 TEXT NOT NULL,
+            document_size_bytes INTEGER NOT NULL,
+            source_url TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            PRIMARY KEY (snapshot_id, case_id)
+        );
+        CREATE TABLE IF NOT EXISTS corpus_state (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         """
     )
 
+
+def current_corpus(connection: sqlite3.Connection) -> Optional[dict[str, str]]:
+    """Return the metadata for the index currently used by the audit service."""
+    row = connection.execute(
+        """
+        SELECT s.*
+        FROM corpus_state state
+        JOIN corpus_snapshots s ON s.snapshot_id = state.value
+        WHERE state.key = 'current_snapshot_id'
+        """
+    ).fetchone()
+    return dict(row) if row else None

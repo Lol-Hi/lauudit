@@ -47,6 +47,8 @@ The citation should contain:
 
 This does not mean that the URL is live or that it contains the cited case. It only means that the URL has official eLitigation-domain provenance. A search URL should produce `OFFICIAL_SOURCE_SEARCH_PAGE`; a normal unknown URL should produce `UNVERIFIED_EXTERNAL_URL`.
 
+Singapore Law Watch Judgments links are classified as `TRUSTED_PUBLISHER_SOURCE`; its `/Judgments` and `/Results` pages are classified as `TRUSTED_PUBLISHER_SEARCH_PAGE`. These labels identify a publisher/discovery source only and do not replace local corpus confirmation.
+
 ## Increment 2: Frontend source-status display
 
 ### Visible changes
@@ -65,13 +67,15 @@ Run the backend, serve the sample page, load the unpacked extension, and audit t
 ### Visible changes
 
 - `python scripts/build_index.py` prints clearer validation results.
-- Audit results include more reliable source metadata and corpus snapshot information.
+- Audit results include a content-derived `corpus_snapshot`, `corpus_completeness`, and corpus notes.
+- `python scripts/build_index.py` prints the metadata SHA-256 and states that no URLs were fetched.
 - A case matched in the local corpus is labelled `KNOWN_CORPUS_SOURCE` when its hyperlink matches the indexed source URL.
+- Rebuilding writes a temporary SQLite index and replaces the active index only after a successful build.
 - Missing judgments remain `NOT_FOUND_IN_VERIFIED_CORPUS`; the interface must not say that the case does not exist.
 
 ### Manual verification
 
-Add one permitted judgment and metadata record, rebuild the index, and audit a response citing it. Then temporarily use a missing document path and confirm that the indexer reports the error and exits non-zero.
+Add one permitted judgment and metadata record, rebuild the index, and audit a response citing it. Confirm that the response reports a `snapshot-*` ID and `partial` completeness. Then temporarily use a missing document path and confirm that the indexer reports the error and exits non-zero without replacing the previous index. Confirm that no PDF or text file is downloaded by the API or extension.
 
 ## Increment 4: Source metadata confirmation
 
@@ -127,4 +131,3 @@ node --check extension/src/background.js
 node --check extension/src/content.js
 node --check extension/src/popup.js
 ```
-

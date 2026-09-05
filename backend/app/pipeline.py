@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date
 
 from backend.app.config import settings
-from backend.app.corpus.database import connect, initialize_schema
+from backend.app.corpus.database import connect, current_corpus, initialize_schema
 from backend.app.extractors.citations import extract_citations
 from backend.app.extractors.links import link_for_citation
 from backend.app.scoring import citation_status
@@ -19,6 +18,7 @@ from backend.app.verifiers.url_classifier import classify_url
 def run_audit(request: AuditRequest) -> AuditResponse:
     connection = connect(settings.absolute_db_path)
     initialize_schema(connection)
+    corpus = current_corpus(connection)
     extracted = extract_citations(request.response_text)
     known_cases = [dict(row) for row in connection.execute("SELECT * FROM cases").fetchall()]
     known_source_urls = [item["source_url"] for item in known_cases if item.get("source_url")]
@@ -75,7 +75,9 @@ def run_audit(request: AuditRequest) -> AuditResponse:
     return AuditResponse(
         audit_id=f"audit-{uuid.uuid4().hex[:12]}",
         jurisdiction=request.jurisdiction,
-        corpus_snapshot=request.as_of_date or date.today().isoformat(),
+        corpus_snapshot=corpus["snapshot_id"] if corpus else "untracked",
+        corpus_completeness=corpus["completeness"] if corpus else "unknown",
+        corpus_notes=corpus["notes"] if corpus else "The SQLite index has no recorded corpus snapshot.",
         overall_status=overall,
         summary=summary,
         citations=audits,

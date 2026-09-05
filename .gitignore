@@ -7,4 +7,6 @@ __pycache__/
 *.egg-info/
 data/corpus/index.sqlite3
 data/corpus/index.sqlite3-*
+data/corpus/source_pdfs/
+data/corpus/private_documents/
 *.log

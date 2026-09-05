@@ -9,5 +9,14 @@ from backend.app.corpus.indexer import build_index
 
 
 if __name__ == "__main__":
-    result = build_index(settings.absolute_cases_path, settings.absolute_db_path)
+    result = build_index(
+        settings.absolute_cases_path,
+        settings.absolute_db_path,
+        completeness=settings.corpus_completeness,
+        notes=settings.corpus_notes,
+    )
     print(f"Indexed {result['records']} case(s) into {result['db_path']}")
+    print(f"Corpus snapshot: {result['snapshot_id']}")
+    print(f"Cases metadata SHA-256: {result['cases_sha256']}")
+    print(f"Completeness: {result['completeness']}")
+    print("No URLs were fetched; the index uses only locally supplied documents.")

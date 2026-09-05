@@ -39,6 +39,8 @@ SourceStatus = Literal[
     "OFFICIAL_ELITIGATION_SOURCE",
     "OFFICIAL_JUDICIARY_SOURCE",
     "OFFICIAL_SOURCE_SEARCH_PAGE",
+    "TRUSTED_PUBLISHER_SOURCE",
+    "TRUSTED_PUBLISHER_SEARCH_PAGE",
     "UNVERIFIED_EXTERNAL_URL",
     "MALFORMED_URL",
 ]
@@ -88,6 +90,8 @@ class AuditResponse(BaseModel):
     audit_id: str
     jurisdiction: str
     corpus_snapshot: str
+    corpus_completeness: str = "unknown"
+    corpus_notes: str = ""
     overall_status: str
     summary: AuditSummary
     citations: list[CitationAudit]

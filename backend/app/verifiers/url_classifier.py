@@ -18,6 +18,8 @@ URL_STATUSES = {
     "OFFICIAL_ELITIGATION_SOURCE",
     "OFFICIAL_JUDICIARY_SOURCE",
     "OFFICIAL_SOURCE_SEARCH_PAGE",
+    "TRUSTED_PUBLISHER_SOURCE",
+    "TRUSTED_PUBLISHER_SEARCH_PAGE",
     "UNVERIFIED_EXTERNAL_URL",
     "MALFORMED_URL",
 }
@@ -97,5 +99,20 @@ def classify_url(raw_url: Optional[str], known_source_urls: Optional[Iterable[st
             return URLClassification("OFFICIAL_SOURCE_SEARCH_PAGE", normalized, host, "The URL appears to be an official Singapore Courts search page.")
         return URLClassification("OFFICIAL_JUDICIARY_SOURCE", normalized, host, "The URL belongs to the official Singapore Courts domain.")
 
-    return URLClassification("UNVERIFIED_EXTERNAL_URL", normalized, host, "The URL is valid but is not from a configured official source.")
+    if _is_domain_or_subdomain(host, "singaporelawwatch.sg"):
+        is_slw_search_page = path == "/judgments" or path.startswith("/results") or "ednsearch" in query_keys
+        if is_slw_search_page:
+            return URLClassification(
+                "TRUSTED_PUBLISHER_SEARCH_PAGE",
+                normalized,
+                host,
+                "The URL appears to be a Singapore Law Watch judgments or search page; it is discovery evidence, not a case confirmation.",
+            )
+        return URLClassification(
+            "TRUSTED_PUBLISHER_SOURCE",
+            normalized,
+            host,
+            "The URL belongs to the Singapore Law Watch publisher domain; the local corpus still needs a manually verified case/document match.",
+        )
 
+    return URLClassification("UNVERIFIED_EXTERNAL_URL", normalized, host, "The URL is valid but is not from a configured official source.")
