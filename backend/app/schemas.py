@@ -9,11 +9,24 @@ class LinkInput(BaseModel):
     text: str = ""
     href: str
     context: str = ""
+    block_id: Optional[str] = None
+    start: Optional[int] = Field(default=None, ge=0)
+    end: Optional[int] = Field(default=None, ge=0)
+
+
+class ContentBlock(BaseModel):
+    id: str
+    tag: str
+    text: str
+    start: int = Field(ge=0)
+    end: int = Field(ge=0)
 
 
 class AuditRequest(BaseModel):
     response_text: str = Field(min_length=1)
     links: list[LinkInput] = Field(default_factory=list)
+    content_blocks: list[ContentBlock] = Field(default_factory=list)
+    capture_diagnostics: dict[str, Any] = Field(default_factory=dict)
     page_url: Optional[str] = None
     user_query: Optional[str] = None
     jurisdiction: str = "Singapore"
@@ -85,6 +98,8 @@ ExistenceStatus = Literal[
 class CitationAudit(BaseModel):
     occurrence_id: str
     raw_text: str
+    text_start: int = Field(default=0, ge=0)
+    text_end: int = Field(default=0, ge=0)
     provided_name: Optional[str] = None
     provided_citation: Optional[str] = None
     parallel_citations: list[str] = Field(default_factory=list)

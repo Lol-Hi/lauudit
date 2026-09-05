@@ -5,7 +5,7 @@
   "scripts": {
     "test": "vitest run",
     "test:frontend": "vitest run tests/frontend-model.test.js tests/popup.integration.test.js",
-    "test:integration": "vitest run tests/background.integration.test.js tests/popup.integration.test.js"
+    "test:integration": "vitest run tests/background.integration.test.js tests/popup.integration.test.js tests/content-reading.integration.test.js"
   },
   "devDependencies": {
     "jsdom": "^26.1.0",

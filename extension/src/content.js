@@ -5,6 +5,11 @@
   let selectionSequence = 0;
   let lastSubmittedSignature = "";
   const dynamicSelectionRanges = new Map();
+  const BLOCK_TAGS = new Set([
+    "ARTICLE", "BLOCKQUOTE", "DD", "DIV", "DT", "H1", "H2", "H3", "H4", "H5", "H6",
+    "LI", "P", "PRE", "SECTION", "TD", "TH",
+  ]);
+  const EXCLUDED_SELECTOR = "script, style, template, nav, aside, footer, form, textarea, input, button, [aria-hidden=\"true\"], [data-lauudit-ignore]";
 
   function visible(element) {
     const style = window.getComputedStyle(element);
@@ -12,17 +17,118 @@
     return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
   }
 
+  function nodeText(element) {
+    if (!element) return "";
+    const value = typeof element.innerText === "string" ? element.innerText : element.textContent || "";
+    return value.replaceAll("\r\n", "\n").replaceAll("\u00a0", " ").trim();
+  }
+
+  function excluded(element) {
+    return Boolean(element?.matches?.(EXCLUDED_SELECTOR) || element?.closest?.(EXCLUDED_SELECTOR));
+  }
+
+  function hasBlockDescendant(element) {
+    return Array.from(element.children || []).some((child) => {
+      if (excluded(child)) return false;
+      if (BLOCK_TAGS.has(child.tagName)) return true;
+      return hasBlockDescendant(child);
+    });
+  }
+
+  function contentBlocks(root) {
+    const elements = [root, ...Array.from(root.querySelectorAll("*"))];
+    const blocks = elements.filter((element) => {
+      if (excluded(element) || !visible(element) || !nodeText(element)) return false;
+      if (element === root) return !hasBlockDescendant(element);
+      return BLOCK_TAGS.has(element.tagName) && !hasBlockDescendant(element);
+    });
+    return blocks.length ? blocks : [root];
+  }
+
+  function rootDescription(element) {
+    if (!element) return "none";
+    const label = element.getAttribute("aria-label") || element.id || element.className || "";
+    return `${element.tagName.toLowerCase()}${label ? `[${String(label).trim().slice(0, 120)}]` : ""}`;
+  }
+
+  function rootScore(element) {
+    if (!element || excluded(element) || !visible(element)) return -Infinity;
+    const text = nodeText(element);
+    if (text.length < 40) return -Infinity;
+    const label = `${element.id || ""} ${element.className || ""} ${element.getAttribute("aria-label") || ""}`.toLowerCase();
+    const penalty = /(source|sources|steps|navigation|sidebar|menu)/.test(label) ? 5000 : 0;
+    const bodyPenalty = element === document.body ? 100000 : 0;
+    const blocks = contentBlocks(element).length;
+    return Math.min(text.length, 50000) + blocks * 100 - penalty - bodyPenalty;
+  }
+
+  function chooseResponseRoot() {
+    const candidates = [
+      ...Array.from(document.querySelectorAll("[data-testid*=response], [data-testid*=answer], [class*=response], [class*=answer], main, article, [role=main]")),
+      document.body,
+    ].filter((element, index, values) => element && values.indexOf(element) === index);
+    const fallback = document.body;
+    if (!candidates.length) return fallback;
+    return candidates.reduce((best, candidate) => {
+      if (!best) return candidate;
+      return rootScore(candidate) > rootScore(best) ? candidate : best;
+    }, fallback) || fallback;
+  }
+
+  function collectPageCapture() {
+    const root = chooseResponseRoot();
+    const blocks = contentBlocks(root);
+    const links = [];
+    let responseText = "";
+    const structuredBlocks = blocks.map((element, blockIndex) => {
+      const text = nodeText(element);
+      if (responseText) responseText += "\n\n";
+      const start = responseText.length;
+      responseText += text;
+      const end = responseText.length;
+      let linkCursor = 0;
+      Array.from(element.querySelectorAll("a[href]"))
+        .filter((anchor) => visible(anchor) && !excluded(anchor))
+        .forEach((anchor) => {
+          const linkText = nodeText(anchor);
+          if (!linkText) return;
+          const nextStart = text.indexOf(linkText, linkCursor);
+          const localStart = nextStart >= 0 ? nextStart : text.indexOf(linkText);
+          const offset = localStart >= 0 ? localStart : 0;
+          links.push({
+            text: linkText,
+            href: anchor.href,
+            context: text,
+            block_id: `block-${blockIndex + 1}`,
+            start: start + offset,
+            end: start + offset + linkText.length,
+          });
+          linkCursor = Math.max(linkCursor, offset + linkText.length);
+        });
+      return {
+        id: `block-${blockIndex + 1}`,
+        tag: element.tagName.toLowerCase(),
+        text,
+        start,
+        end,
+      };
+    });
+    return {
+      response_text: responseText,
+      links,
+      content_blocks: structuredBlocks,
+      capture_diagnostics: {
+        root: rootDescription(root),
+        fallback_to_body: root === document.body,
+        block_count: structuredBlocks.length,
+        text_length: responseText.length,
+      },
+    };
+  }
+
   function collectResponse() {
-    const responseText = document.body ? document.body.innerText : "";
-    const links = Array.from(document.querySelectorAll("a[href]"))
-      .filter(visible)
-      .map((anchor) => ({
-        text: (anchor.innerText || anchor.textContent || "").trim(),
-        href: anchor.href,
-        context: (anchor.closest("p, li, article, main, section") || anchor.parentElement || document.body).innerText.trim()
-      }))
-      .filter((link) => link.text || link.href);
-    return {response_text: responseText, links, page_url: location.href, user_query: null, jurisdiction: "Singapore", as_of_date: new Date().toISOString().slice(0, 10)};
+    const capture = collectPageCapture();
+    return {...capture, page_url: location.href, user_query: null, jurisdiction: "Singapore", as_of_date: new Date().toISOString().slice(0, 10)};
   }
 
   function rememberSelection() {

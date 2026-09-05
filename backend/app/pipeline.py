@@ -110,6 +110,8 @@ def run_audit(request: AuditRequest) -> AuditResponse:
         audits.append(CitationAudit(
             occurrence_id=citation.occurrence_id,
             raw_text=citation.raw_text,
+            text_start=citation.start,
+            text_end=citation.end,
             provided_name=citation.provided_name,
             provided_citation=citation.provided_citation,
             parallel_citations=citation.parallel_citations,

@@ -11,7 +11,9 @@ def test_audit_api(indexed_db):
     assert client.get("/favicon.ico").status_code == 204
     response = client.post("/api/v1/audit", json={
         "response_text": "Tan v Lim [2023] SGCA 12 held that contractual agreement is assessed objectively.",
-        "links": [{"text": "Tan v Lim [2023] SGCA 12", "href": "https://official.test/case-1", "context": "Tan v Lim [2023] SGCA 12 held..."}],
+        "links": [{"text": "Tan v Lim [2023] SGCA 12", "href": "https://official.test/case-1", "context": "Tan v Lim [2023] SGCA 12 held...", "start": 10, "end": 24, "block_id": "block-1"}],
+        "content_blocks": [{"id": "block-1", "tag": "p", "text": "Tan v Lim [2023] SGCA 12 held that contractual agreement is assessed objectively.", "start": 0, "end": 78}],
+        "capture_diagnostics": {"root": "main[answer-panel]", "fallback_to_body": False, "block_count": 1, "text_length": 78},
         "page_url": "http://localhost",
         "as_of_date": "2026-09-05",
     })
@@ -25,6 +27,8 @@ def test_audit_api(indexed_db):
     assert body["citations"][0]["link_status"] == "LINK_CONFIRMS_CASE"
     assert body["citations"][0]["source_status"] == "KNOWN_CORPUS_SOURCE"
     assert body["citations"][0]["source_url_normalized"] == "https://official.test/case-1"
+    assert body["citations"][0]["text_start"] == 10
+    assert body["citations"][0]["text_end"] == 24
     assert body["citations"][0]["needs_human_review"] is True
 
 
