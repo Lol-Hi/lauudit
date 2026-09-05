@@ -126,18 +126,16 @@ Run the default suite:
 pytest -m "not live" -q
 ```
 
-To opt into the sole live check, supply the exact case name visible on the
-approved eLitigation page:
+To opt into the sole live check, which uses the approved `[2026] SGCA 39`
+eLitigation PDF and runs it through local indexing and `/api/v1/audit`:
 
 ```bash
 RUN_LIVE_TESTS=1 \
-LIVE_CASE_NAME="Exact case name shown by eLitigation" \
-LIVE_NEUTRAL_CITATION="[2026] SGCA 39" \
 pytest -m live -q
 ```
 
-The live test must return `LIVE_VERIFIED`; it should not be used to bypass
-access controls, CAPTCHA, or rate limits.
+The live test must return a successful audit with native-PDF page evidence; it
+should not be used to bypass access controls, CAPTCHA, or rate limits.
 
 ## Increment 6: Rule-support retrieval improvements
 
@@ -156,17 +154,26 @@ access controls, CAPTCHA, or rate limits.
 
 Test one supported claim, one unsupported claim, and one ambiguous claim. Confirm that the paragraph text and paragraph numbers correspond to the local judgment, that the supported claim ranks the operative holding first, and that weak or absent evidence keeps `needs_human_review` true.
 
-## Increment 6: PDF ingestion
+## Increment 7: PDF ingestion
 
 ### Visible changes
 
-- The corpus can ingest permitted PDF judgments.
-- Evidence includes page references in addition to paragraph references.
-- OCR-derived text is marked separately when applicable.
+- The corpus can ingest permitted text-based PDF judgments when `pypdf` is
+  installed.
+- Evidence includes `page` references in addition to paragraph references.
+- Each evidence item includes `text_source`: `plain_text`, `native_pdf`, or
+  explicitly declared `ocr`.
+- PDFs with no extractable text fail clearly; the indexer does not silently
+  treat a scanned image as an empty judgment.
 
 ### Manual verification
 
-Index a permitted text-based PDF and an OCR PDF. Compare extracted paragraphs, page references, and error messages against the source documents.
+Add a permitted text-based PDF to a local corpus and reference it from
+`cases.jsonl`. For an OCR-processed PDF, add `"text_source": "ocr"` to the
+record. Rebuild the index and audit a claim. Confirm that the evidence contains
+the expected paragraph and page, and that OCR evidence is labelled separately.
+Try a scanned PDF with no text layer and confirm that the build reports a clear
+error without replacing the existing index.
 
 ## Regression checks for every increment
 

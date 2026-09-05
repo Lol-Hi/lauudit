@@ -6,7 +6,7 @@ This repository is a first-iteration, local-only prototype. A Chrome Manifest V3
 
 To run the demo, no additional data is required: the repository contains two clearly marked synthetic sample judgments under `data/corpus/documents/`.
 
-To audit real Singapore cases, the team must supply permitted plain-text judgments and metadata. The recommended discovery source is the Singapore Law Watch [Judgments page](https://www.singaporelawwatch.sg/Judgments); use its judgment/PDF link as provenance after the team has manually confirmed that the document may be retained and indexed. Put public/demo text in `data/corpus/documents/`, or put restricted text in the ignored `data/corpus/private_documents/` directory, and add one JSON object per line to `data/corpus/cases.jsonl`. The metadata must include `case_id`, `canonical_name`, `aliases`, `neutral_citation` or `reported_citations`, `court`, `court_code`, `decision_date`, `source_url`, `document_path`, and `source_type`. The corpus is not assumed to be comprehensive, so a missing case is reported as `NOT_FOUND_IN_VERIFIED_CORPUS`, never as proof that the case does not exist.
+To audit real Singapore cases, the team must supply permitted plain-text or PDF judgments and metadata. The recommended discovery source is the Singapore Law Watch [Judgments page](https://www.singaporelawwatch.sg/Judgments); use its judgment/PDF link as provenance after the team has manually confirmed that the document may be retained and indexed. Put public/demo text or PDFs in `data/corpus/documents/`, or put restricted files in the ignored `data/corpus/private_documents/` directory, and add one JSON object per line to `data/corpus/cases.jsonl`. The metadata must include `case_id`, `canonical_name`, `aliases`, `neutral_citation` or `reported_citations`, `court`, `court_code`, `decision_date`, `source_url`, `document_path`, and `source_type`. The corpus is not assumed to be comprehensive, so a missing case is reported as `NOT_FOUND_IN_VERIFIED_CORPUS`, never as proof that the case does not exist.
 
 The sample records are synthetic and are useful only for wiring tests. They are not legal authorities.
 
@@ -78,7 +78,7 @@ python scripts/build_index.py
 
 The indexer validates required fields, document paths, duplicate case IDs, duplicate citations, duplicate canonical names/aliases, ISO decision dates, source URLs, and provenance timestamps. It exits non-zero when malformed records are found. Each successful build creates a content-derived corpus snapshot and records SHA-256 hashes for the metadata file and every indexed document. Rebuilding writes a temporary SQLite database and atomically replaces the active index only after validation and indexing succeed. A Git-ignored `data/corpus/build_report.json` receipt is also written for the successful build.
 
-The build is intentionally offline: it never downloads `source_url`, PDF files, or text files. PDFs are an optional corpus-preparation artifact, not an extension-runtime artifact. If the team obtains permitted PDFs, keep them locally under `data/corpus/source_pdfs/`, extract approved text into `data/corpus/private_documents/` or `data/corpus/documents/`, and reference the text path from `cases.jsonl`. Both `source_pdfs/` and `private_documents/` are excluded from Git by default, as is the generated SQLite index. Do not commit real judgments unless the team has verified its redistribution rights.
+The build is intentionally offline: it never downloads `source_url` or any document. Permitted PDFs may be indexed directly from `data/corpus/documents/` or the ignored `data/corpus/private_documents/` directory; `pypdf` extracts their text locally and the original PDF is not copied into SQLite. Both `source_pdfs/` and `private_documents/` are excluded from Git by default, as is the generated SQLite index. Do not commit real judgments unless the team has verified its redistribution rights.
 
 Set `CORPUS_COMPLETENESS=partial` for the normal curated corpus. `comprehensive` should only be used after the team has documented the scope and coverage of the collection; it is not the default.
 
@@ -102,12 +102,12 @@ pytest -m "not live" -q
 ```
 
 The default suite never contacts the internet. There is exactly one opt-in
-eLitigation smoke test; run it only after confirming access is permitted:
+eLitigation end-to-end test; it downloads the public `[2026] SGCA 39` PDF into
+pytest's temporary directory, indexes it, and sends a simulated extension
+request through `/api/v1/audit`. Run it only after confirming access is permitted:
 
 ```bash
 RUN_LIVE_TESTS=1 \
-LIVE_CASE_NAME="Exact case name shown by eLitigation" \
-LIVE_NEUTRAL_CITATION="[2026] SGCA 39" \
 pytest -m live -q
 ```
 

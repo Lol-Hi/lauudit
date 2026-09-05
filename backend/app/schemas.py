@@ -51,6 +51,8 @@ class Evidence(BaseModel):
     paragraph: int
     text: str
     score: Optional[float] = None
+    page: Optional[int] = None
+    text_source: str = "plain_text"
 
 
 RuleStatus = Literal["SUPPORTED", "UNSUPPORTED", "UNCERTAIN", "UNABLE_TO_EVALUATE"]

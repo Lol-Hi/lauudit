@@ -75,7 +75,10 @@ def paragraphs_for_case(connection: sqlite3.Connection, case_id: str, query: str
     terms = legal_terms(query)
     query_set = set(terms)
     query_bigrams = set(zip(terms, terms[1:]))
-    rows = connection.execute("SELECT paragraph_number, text FROM paragraphs WHERE case_id=?", (case_id,)).fetchall()
+    rows = connection.execute(
+        "SELECT paragraph_number, text, page_number, text_source FROM paragraphs WHERE case_id=?",
+        (case_id,),
+    ).fetchall()
     scored: list[dict] = []
     for row in rows:
         paragraph_terms = legal_terms(row["text"])
@@ -101,6 +104,8 @@ def paragraphs_for_case(connection: sqlite3.Connection, case_id: str, query: str
             "paragraph": row["paragraph_number"],
             "text": row["text"],
             "score": round(min(score, 1.0), 4),
+            "page": row["page_number"],
+            "text_source": row["text_source"],
         })
     scored.sort(key=lambda item: (item["score"], len(legal_terms(item["text"])), -item["paragraph"]), reverse=True)
     return scored[:limit]

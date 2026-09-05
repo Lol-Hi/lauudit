@@ -43,6 +43,8 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             case_id TEXT NOT NULL REFERENCES cases(case_id) ON DELETE CASCADE,
             paragraph_number INTEGER NOT NULL,
             text TEXT NOT NULL,
+            page_number INTEGER,
+            text_source TEXT NOT NULL DEFAULT 'plain_text',
             PRIMARY KEY (case_id, paragraph_number)
         );
         CREATE VIRTUAL TABLE IF NOT EXISTS paragraph_fts USING fts5(
@@ -79,6 +81,8 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
     )
     _ensure_column(connection, "case_provenance", "source_verified", "INTEGER NOT NULL DEFAULT 0")
     _ensure_column(connection, "case_provenance", "retrieved_at", "TEXT")
+    _ensure_column(connection, "paragraphs", "page_number", "INTEGER")
+    _ensure_column(connection, "paragraphs", "text_source", "TEXT NOT NULL DEFAULT 'plain_text'")
 
 
 def _ensure_column(
