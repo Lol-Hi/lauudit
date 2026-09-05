@@ -10,6 +10,7 @@ import {
   renderCitationCard,
   safeHttpUrl,
   toneForStatus,
+  verificationSourceNote,
 } from "../src/popup-model.js";
 
 const citation = {
@@ -53,7 +54,7 @@ describe("popup model", () => {
     expect(text).toContain("Parallel citations: [2023] 2 SLR 100");
     expect(text).toContain("Context: Footnote 1");
     expect(text).toContain("Known local corpus source");
-    expect(text).toContain("Split link needs review");
+    expect(text).toContain("Split response links need review");
     expect(text).toContain("Human review required");
     expect(text).toContain("¶42");
     expect(dom.window.document.querySelector("a")?.getAttribute("rel")).toBe("noopener noreferrer");
@@ -119,6 +120,29 @@ describe("popup model", () => {
       source_discovery: "OFFICIAL_ELITIGATION_SEARCH",
     })}</main>`);
 
-    expect(dom.window.document.body.textContent).toContain("found by official search");
+    expect(dom.window.document.body.textContent).toContain("Resolved by official search");
+  });
+
+  it("unifies a live source and an unconfirmed response link", () => {
+    const dom = new JSDOM(`<main>${renderCitationCard({...citation,
+      source_url: "https://www.elitigation.sg/gdviewer/s/1988_SGHC_54",
+      source_url_normalized: "https://www.elitigation.sg/gdviewer/s/1988_SGHC_54",
+      source_status: "OFFICIAL_ELITIGATION_SOURCE",
+      source_discovery: "OFFICIAL_ELITIGATION_SEARCH",
+      link_status: "LINK_BROKEN_OR_INACCESSIBLE",
+      live_verification: {status: "LIVE_VERIFIED", source_verified: true},
+    })}</main>`);
+    const text = dom.window.document.body.textContent;
+
+    expect(text).toContain("Verification source:");
+    expect(text).toContain("Official eLitigation source");
+    expect(text).toContain("Resolved by official search");
+    expect(text).not.toContain("Link could not be confirmed");
+    expect(text).not.toContain("Link:");
+    expect(verificationSourceNote({
+      source_discovery: "OFFICIAL_ELITIGATION_SEARCH",
+      link_status: "LINK_BROKEN_OR_INACCESSIBLE",
+      live_verification: {status: "LIVE_VERIFIED"},
+    })).toBe("Resolved by official search");
   });
 });

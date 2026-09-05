@@ -1,12 +1,3 @@
-const LINK_LABELS = {
-  LINK_CONFIRMS_CASE: "Link confirms case",
-  LINK_RESOLVES_TO_DIFFERENT_CASE: "Link points to another case",
-  LINK_BROKEN_OR_INACCESSIBLE: "Link could not be confirmed",
-  LINK_POINTS_TO_SEARCH_RESULTS: "Search page, not direct judgment",
-  LINK_SPLIT_OR_AMBIGUOUS: "Split link needs review",
-  NO_LINK_AVAILABLE: "No hyperlink supplied",
-};
-
 const SOURCE_LABELS = {
   KNOWN_CORPUS_SOURCE: "Known local corpus source",
   OFFICIAL_ELITIGATION_SOURCE: "Official eLitigation source",
@@ -86,16 +77,21 @@ function sourceLink(item) {
   const safeUrl = safeHttpUrl(item.source_url_normalized || item.source_url);
   if (!displayValue) return "—";
   if (!safeUrl) return `<span class="unsafe-url">${esc(displayValue)} (not a safe HTTP(S) link)</span>`;
-  const discovery = item.source_discovery === "OFFICIAL_ELITIGATION_SEARCH"
-    ? " <span class=\"source-discovery\">(found by official search)</span>"
-    : "";
-  return `<a href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(displayValue)}</a>${discovery}`;
+  return `<a href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(displayValue)}</a>`;
 }
 
-function linkExplanation(status) {
-  if (status === "LINK_SPLIT_OR_AMBIGUOUS") {
-    return "The citation was split across links that point to different URLs. Lauudit did not choose one automatically.";
+function verificationSourceNote(item) {
+  const liveVerified = item.live_verification?.status === "LIVE_VERIFIED";
+  if (item.source_discovery === "OFFICIAL_ELITIGATION_SEARCH") return "Resolved by official search";
+  if (liveVerified && item.link_status === "LINK_CONFIRMS_CASE") return "Response link confirmed";
+  if (liveVerified && ["LINK_BROKEN_OR_INACCESSIBLE", "NO_LINK_AVAILABLE"].includes(item.link_status)) {
+    return "Resolved independently from the response link";
   }
+  if (item.link_status === "LINK_SPLIT_OR_AMBIGUOUS") return "Split response links need review; the source was not selected automatically.";
+  if (item.link_status === "LINK_RESOLVES_TO_DIFFERENT_CASE") return "Response link points to a different case";
+  if (item.link_status === "LINK_POINTS_TO_SEARCH_RESULTS") return "Response link is a search page, not a direct judgment";
+  if (item.link_status === "LINK_BROKEN_OR_INACCESSIBLE") return "Response link could not be confirmed";
+  if (item.link_status === "NO_LINK_AVAILABLE") return "No response hyperlink supplied";
   return "";
 }
 
@@ -182,8 +178,9 @@ function renderCitationCard(item) {
     ? `Footnote ${esc(item.footnote_number)}`
     : "Body text";
   const evidence = Array.isArray(item.evidence) ? item.evidence : [];
-  const linkLabel = LINK_LABELS[item.link_status] || displayLabel(item.link_status);
-  const explanation = linkExplanation(item.link_status);
+  const sourceNote = verificationSourceNote(item);
+  const sourceWarning = item.live_verification?.status !== "LIVE_VERIFIED"
+    && ["LINK_SPLIT_OR_AMBIGUOUS", "LINK_RESOLVES_TO_DIFFERENT_CASE", "LINK_POINTS_TO_SEARCH_RESULTS", "LINK_BROKEN_OR_INACCESSIBLE"].includes(item.link_status);
   return `<article class="card ${citationTone(item)}">
     <h2>${esc(item.provided_name || item.raw_text || "Citation")}</h2>
     <p>${badge(item.status)}</p>
@@ -191,8 +188,7 @@ function renderCitationCard(item) {
     ${parallelOnly.length ? `<p>Parallel citations: ${parallelOnly.map((citation) => esc(citation)).join("; ")}</p>` : ""}
     <p>Context: ${context}</p>
     <p>Canonical: ${esc(item.canonical_name || "—")} ${item.case_id ? `(${esc(item.case_id)})` : ""}</p>
-    <p>Source: ${badge(item.source_status, sourceLabel(item.source_status))}<br>${sourceLink(item)}<br>Link: ${badge(item.link_status, linkLabel)}</p>
-    ${explanation ? `<p class="link-explanation">${esc(explanation)}</p>` : ""}
+    <p>Verification source: ${badge(item.source_status, sourceLabel(item.source_status))}<br>${sourceLink(item)}${sourceNote ? `<br><span class="verification-source-note${sourceWarning ? " warning" : ""}">${esc(sourceNote)}</span>` : ""}</p>
     <p>Existence: ${existenceMarkup(item)}<br>Name: ${nameMarkup(item)}<br>Rule: ${badge(item.rule_support)}${item.rule_confidence != null ? ` (${esc(item.rule_confidence)})` : ""}</p>
     ${item.explanation ? `<p>${esc(item.explanation)}</p>` : ""}
     ${item.needs_human_review ? '<p class="review-required">Human review required</p>' : ""}
@@ -217,4 +213,5 @@ export {
   safeHttpUrl,
   sourceLabel,
   toneForStatus,
+  verificationSourceNote,
 };
