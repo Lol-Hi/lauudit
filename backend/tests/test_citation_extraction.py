@@ -25,6 +25,16 @@ def test_extracts_party_suffixes_and_company_names():
     assert result[0].provided_name == "ACME Holdings (S) Pte Ltd and another v Public Prosecutor"
 
 
+def test_extracts_long_and_parenthetical_reference_names():
+    result = extract_citations(
+        "CKR Contract Services Pte Ltd v Asplenium Land Pte Ltd and another and another appeal and another matter [2015] SGCA 24\n"
+        "Star City Pty Ltd (formerly known as Sydney Harbour Casino Pty Ltd) v Tan Hong Woon [2002] SGCA 10"
+    )
+
+    assert result[0].provided_name == "CKR Contract Services Pte Ltd v Asplenium Land Pte Ltd and another and another appeal and another matter"
+    assert result[1].provided_name == "Star City Pty Ltd (formerly known as Sydney Harbour Casino Pty Ltd) v Tan Hong Woon"
+
+
 def test_groups_parallel_citations():
     result = extract_citations(
         "Lim v Tan [2023] SGCA 12; [2023] 2 SLR 100 held a rule."

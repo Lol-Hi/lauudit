@@ -13,11 +13,11 @@ REPORTED_CITATION_RE = re.compile(
     r"\[(?P<year>19\d{2}|20\d{2})\]\s*(?P<volume>\d+)\s+SLR\s+(?P<number>\d+)",
     re.I,
 )
-PARTY_WORD = r"(?:[A-Z(][A-Za-z0-9'’().&/-]*|&|and|another|others|ors|of|the)"
+PARTY_WORD = r"(?:[A-Z(][A-Za-z0-9'’().&/-]*|&|and|another|others|ors|of|the|appeal|matter|formerly|known|as)"
 CASE_NAME_RE = re.compile(
-    rf"\b(?P<left>(?:Public Prosecutor|PP|Attorney-General|{PARTY_WORD}(?:\s+{PARTY_WORD}){{0,7}}))\s+"
+    rf"\b(?P<left>(?:Public Prosecutor|PP|Attorney-General|{PARTY_WORD}(?:\s+{PARTY_WORD}){{0,17}}))\s+"
     r"(?P<separator>(?i:v\.?|versus|&))\s+"
-    rf"(?P<right>(?:Public Prosecutor|PP|{PARTY_WORD}(?:\s+{PARTY_WORD}){{0,8}}))",
+    rf"(?P<right>(?:Public Prosecutor|PP|{PARTY_WORD}(?:\s+{PARTY_WORD}){{0,17}}))",
 )
 FOOTNOTE_MARKER_RE = re.compile(r"^\s*(?:\[\^(?P<bracket>\d+)\]|\^(?P<caret>\d+)|(?P<plain>\d+)[.)])\s+")
 
