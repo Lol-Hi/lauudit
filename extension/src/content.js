@@ -1,4 +1,6 @@
 (() => {
+  let lastSelection = null;
+
   function visible(element) {
     const style = window.getComputedStyle(element);
     const box = element.getBoundingClientRect();
@@ -13,6 +15,41 @@
         text: (anchor.innerText || anchor.textContent || "").trim(),
         href: anchor.href,
         context: (anchor.closest("p, li, article, main, section") || anchor.parentElement || document.body).innerText.trim()
+      }))
+      .filter((link) => link.text || link.href);
+    return {response_text: responseText, links, page_url: location.href, user_query: null, jurisdiction: "Singapore", as_of_date: new Date().toISOString().slice(0, 10)};
+  }
+
+  function rememberSelection() {
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount || !selection.toString().trim()) return;
+    lastSelection = {
+      range: selection.getRangeAt(0).cloneRange(),
+      text: selection.toString().trim(),
+    };
+  }
+
+  function intersects(range, node) {
+    try {
+      return range.intersectsNode(node);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function collectSelectedResponse() {
+    const activeSelection = window.getSelection();
+    const activeText = activeSelection?.toString().trim() || "";
+    const range = activeText && activeSelection?.rangeCount ? activeSelection.getRangeAt(0) : lastSelection?.range;
+    const responseText = activeText || lastSelection?.text || "";
+    if (!responseText) return null;
+
+    const links = Array.from(document.querySelectorAll("a[href]"))
+      .filter((anchor) => visible(anchor) && range && intersects(range, anchor))
+      .map((anchor) => ({
+        text: (anchor.innerText || anchor.textContent || "").trim(),
+        href: anchor.href,
+        context: (anchor.closest("p, li, article, main, section") || anchor.parentElement || document.body).innerText.trim(),
       }))
       .filter((link) => link.text || link.href);
     return {response_text: responseText, links, page_url: location.href, user_query: null, jurisdiction: "Singapore", as_of_date: new Date().toISOString().slice(0, 10)};
@@ -52,11 +89,18 @@
       sendResponse(collectResponse());
       return true;
     }
+    if (message.type === "COLLECT_SELECTED_RESPONSE") {
+      const payload = collectSelectedResponse();
+      sendResponse(payload ? {ok: true, payload} : {ok: false, error: "Select some response text before auditing."});
+      return true;
+    }
     if (message.type === "HIGHLIGHT_RESULTS") {
       highlight(message.results || []);
       sendResponse({ok: true});
       return true;
     }
   });
+
+  document.addEventListener("selectionchange", rememberSelection);
 })();
 

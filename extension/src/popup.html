@@ -3,9 +3,16 @@
 <body>
   <main>
     <h1>Lauudit</h1>
-    <button id="audit">Audit response</button>
+    <div class="actions">
+      <button id="audit">Audit response</button>
+      <button id="audit-selection" class="secondary">Audit selected text</button>
+    </div>
     <p id="state" class="muted">Audits the visible page through your local backend.</p>
-    <section id="summary" hidden></section>
+    <section id="summary" class="dashboard" hidden aria-live="polite">
+      <div id="overall-status"></div>
+      <div id="audit-meta" class="audit-meta"></div>
+      <div id="metrics" class="metrics"></div>
+    </section>
     <section id="results"></section>
     <p class="disclaimer">Audit aid only — not legal advice. Review every finding.</p>
   </main>

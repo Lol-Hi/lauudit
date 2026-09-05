@@ -63,7 +63,7 @@ def build_index(cases_path: Path, db_path: Path) -> dict:
             document = Path(record["document_path"])
             if not document.is_absolute():
                 candidates = [cases_path.parent / document]
-                if str(document).startswith("data/corpus/"):
+                if document.as_posix().startswith("data/corpus/"):
                     candidates.append(cases_path.parent.parent.parent / document)
                 document = next((candidate for candidate in candidates if candidate.exists()), candidates[0])
             if not document.exists():

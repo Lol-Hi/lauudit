@@ -2,16 +2,27 @@ body { margin: 0; min-width: 360px; color: #1f2937; background: #f8fafc; font: 1
 main { padding: 14px; }
 h1 { font-size: 17px; margin: 0 0 12px; }
 h2 { font-size: 13px; margin: 0 0 5px; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
 button { border: 0; border-radius: 6px; padding: 8px 12px; color: white; background: #1d4ed8; cursor: pointer; font-weight: 600; }
+button.secondary { color: #1d4ed8; background: #dbeafe; }
 .muted, .disclaimer { color: #64748b; font-size: 11px; }
 .disclaimer { border-top: 1px solid #e2e8f0; margin-top: 14px; padding-top: 8px; }
 .overall { border-radius: 6px; padding: 8px; margin: 12px 0 8px; font-weight: 700; }
-.good { background: #dcfce7; border-color: #86efac; }
-.bad { background: #fee2e2; border-color: #fca5a5; }
+.overall-label { display: block; margin-bottom: 2px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; opacity: .8; }
+.good { background: #dcfce7; border-color: #86efac; color: #166534; }
+.warn { background: #fef9c3; border-color: #facc15; color: #854d0e; }
+.bad { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+.audit-meta { display: flex; flex-direction: column; gap: 2px; color: #64748b; font-size: 11px; margin-bottom: 10px; }
+.metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 12px; }
+.metric { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; background: white; }
+.metric-value { display: block; font-size: 18px; font-weight: 700; }
+.metric-label { color: #64748b; font-size: 11px; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-bottom: 10px; font-size: 11px; }
 .card { border: 1px solid; border-radius: 6px; padding: 9px; margin: 8px 0; background: white; }
 .card.good { background: #f0fdf4; }
-.card.bad { background: #fff7ed; }
+.card.warn { background: #fefce8; }
+.card.bad { background: #fef2f2; }
 .card p { margin: 4px 0; }
+.status-badge { display: inline-block; border: 1px solid; border-radius: 999px; padding: 1px 6px; font-size: 10px; font-weight: 700; }
 blockquote { border-left: 3px solid #94a3b8; margin: 7px 0 0; padding: 4px 7px; color: #475569; font-size: 11px; background: #f8fafc; }
 
