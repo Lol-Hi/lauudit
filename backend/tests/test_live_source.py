@@ -1,4 +1,7 @@
+import os
+
 import httpx
+import pytest
 
 from backend.app.verifiers.live_source import verify_live_source
 
@@ -103,3 +106,71 @@ def test_pdf_is_reported_as_unsupported_without_retaining_text():
 
     assert result.status == "LIVE_UNSUPPORTED_FORMAT"
     assert result.source_verified is False
+
+
+def test_http_error_is_reported_without_retrying():
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        raise httpx.ConnectError("connection refused", request=request)
+
+    result = verify_live_source(
+        "https://www.elitigation.sg/gdviewer/s/2023_SGCA_12",
+        {"canonical_name": "Lim v Tan"},
+        client_factory=client_factory(handler),
+    )
+
+    assert result.status == "LIVE_SOURCE_UNAVAILABLE"
+    assert result.attempted is True
+    assert len(requests) == 1
+    assert "Lauudit-Verifier/" in requests[0].headers["user-agent"]
+
+
+def test_redirect_outside_allowlist_is_not_followed():
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            302,
+            headers={"location": "https://example.com/private"},
+        )
+
+    result = verify_live_source(
+        "https://www.elitigation.sg/gdviewer/s/2023_SGCA_12",
+        {"canonical_name": "Lim v Tan"},
+        client_factory=client_factory(handler),
+    )
+
+    assert result.status == "LIVE_SOURCE_UNAVAILABLE"
+    assert result.source_verified is False
+    assert result.final_url == "https://example.com/private"
+    assert len(requests) == 1
+
+
+@pytest.mark.live
+@pytest.mark.skipif(
+    os.getenv("RUN_LIVE_TESTS") != "1",
+    reason="Set RUN_LIVE_TESTS=1 after confirming the source is permitted and reachable.",
+)
+def test_live_elitigation_smoke():
+    """Opt-in smoke test; this is the sole real-network test in the suite."""
+    case_name = os.getenv("LIVE_CASE_NAME")
+    if not case_name:
+        pytest.fail("Set LIVE_CASE_NAME to the exact visible case name before running live tests.")
+
+    result = verify_live_source(
+        os.getenv(
+            "LIVE_SOURCE_URL",
+            "https://www.elitigation.sg/gdviewer/s/2026_SGCA_39",
+        ),
+        {
+            "canonical_name": case_name,
+            "neutral_citation": os.getenv("LIVE_NEUTRAL_CITATION", "[2026] SGCA 39"),
+            "decision_date": os.getenv("LIVE_DECISION_DATE"),
+        },
+    )
+
+    assert result.attempted is True
+    assert result.status == "LIVE_VERIFIED", result.reason

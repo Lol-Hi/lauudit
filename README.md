@@ -46,6 +46,7 @@ The extension reads the rendered DOM only. It does not intercept site network re
 ```text
 GET  /health
 POST /api/v1/audit
+POST /api/v1/sources/verify
 ```
 
 Example:
@@ -59,6 +60,13 @@ JSON
 ```
 
 `RULE_EVALUATOR=heuristic` is the default and is fully offline. `local_model` is reserved for a future Ollama/local inference adapter; the current implementation intentionally returns `UNABLE_TO_EVALUATE` for that mode instead of contacting a service.
+
+Live source verification is a separate, explicit operation. It is disabled by
+default and is enabled only for a deliberate maintenance or demonstration run
+with `ENABLE_LIVE_VERIFICATION=true`. `POST /api/v1/sources/verify` validates
+the source against the live-fetch allowlist, follows redirects, extracts page
+metadata, and returns an ephemeral result. It does not run during
+`POST /api/v1/audit`, write to the corpus, or save the fetched document.
 
 ## Corpus maintenance
 
@@ -90,7 +98,17 @@ The individual test command remains available when iterating on a specific
 backend test:
 
 ```bash
-pytest -q
+pytest -m "not live" -q
+```
+
+The default suite never contacts the internet. There is exactly one opt-in
+eLitigation smoke test; run it only after confirming access is permitted:
+
+```bash
+RUN_LIVE_TESTS=1 \
+LIVE_CASE_NAME="Exact case name shown by eLitigation" \
+LIVE_NEUTRAL_CITATION="[2026] SGCA 39" \
+pytest -m live -q
 ```
 
 The tests cover citation extraction, name normalization, exact/fuzzy/ambiguous existence, link outcomes, cautious rule support, and the API.

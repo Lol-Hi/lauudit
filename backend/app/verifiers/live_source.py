@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from typing import Callable, Optional
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
@@ -37,6 +37,8 @@ TRUSTED_FOR_LIVE_FETCH = {
     "TRUSTED_PUBLISHER_SOURCE",
 }
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_REDIRECTS = 5
+REDIRECT_STATUSES = {301, 302, 303, 307, 308}
 DATE_RE = re.compile(
     r"\b(?P<day>\d{1,2})\s+(?P<month>January|February|March|April|May|June|July|August|September|October|November|December)\s+(?P<year>\d{4})\b",
     re.I,
@@ -200,57 +202,72 @@ def verify_live_source(
             reason="The source is not a direct trusted document page; search pages are not fetched.",
         )
 
+    retrieved_at = _now_iso()
+    current_url = normalized_url
     try:
         with client_factory(
-            follow_redirects=True,
+            follow_redirects=False,
             timeout=timeout,
             headers={"User-Agent": "Lauudit-Verifier/0.1 (read-only hackathon prototype)"},
         ) as client:
-            response = client.get(normalized_url)
+            for _ in range(MAX_REDIRECTS + 1):
+                response = client.get(current_url)
+                if response.status_code not in REDIRECT_STATUSES:
+                    break
+                location = response.headers.get("location")
+                if not location:
+                    break
+                try:
+                    redirect_url = normalize_url(urljoin(current_url, location))
+                except (TypeError, ValueError):
+                    return LiveVerificationResult(
+                        "LIVE_SOURCE_UNAVAILABLE",
+                        attempted=True,
+                        source_verified=False,
+                        final_url=location,
+                        retrieved_at=retrieved_at,
+                        reason="The source redirect target is invalid.",
+                    )
+                if not _allowlisted_host(redirect_url):
+                    return LiveVerificationResult(
+                        "LIVE_SOURCE_UNAVAILABLE",
+                        attempted=True,
+                        source_verified=False,
+                        final_url=redirect_url,
+                        retrieved_at=retrieved_at,
+                        reason="The source redirected outside the live-verification allowlist.",
+                    )
+                redirect_classification = classify_url(redirect_url)
+                if redirect_classification.status not in TRUSTED_FOR_LIVE_FETCH:
+                    return LiveVerificationResult(
+                        "LIVE_SOURCE_UNAVAILABLE",
+                        attempted=True,
+                        source_verified=False,
+                        final_url=redirect_url,
+                        retrieved_at=retrieved_at,
+                        reason="The source redirected to a search or non-document page.",
+                    )
+                current_url = redirect_url
+            else:
+                return LiveVerificationResult(
+                    "LIVE_SOURCE_UNAVAILABLE",
+                    attempted=True,
+                    source_verified=False,
+                    final_url=current_url,
+                    retrieved_at=retrieved_at,
+                    reason="The source exceeded the configured redirect limit.",
+                )
     except httpx.HTTPError as exc:
         return LiveVerificationResult(
             "LIVE_SOURCE_UNAVAILABLE",
             attempted=True,
             source_verified=False,
-            retrieved_at=_now_iso(),
+            final_url=current_url,
+            retrieved_at=retrieved_at,
             reason=f"Live fetch failed: {exc}",
         )
 
-    final_url = str(response.url)
-    try:
-        final_url_normalized = normalize_url(final_url)
-    except (TypeError, ValueError):
-        return LiveVerificationResult(
-            "LIVE_SOURCE_UNAVAILABLE",
-            attempted=True,
-            source_verified=False,
-            final_url=final_url,
-            retrieved_at=_now_iso(),
-            reason="The final URL after redirect is invalid.",
-        )
-
-    if not _allowlisted_host(final_url_normalized):
-        return LiveVerificationResult(
-            "LIVE_SOURCE_UNAVAILABLE",
-            attempted=True,
-            source_verified=False,
-            final_url=final_url_normalized,
-            retrieved_at=_now_iso(),
-            reason="The source redirected outside the live-verification allowlist.",
-        )
-
-    final_classification = classify_url(final_url_normalized)
-    if final_classification.status not in TRUSTED_FOR_LIVE_FETCH:
-        return LiveVerificationResult(
-            "LIVE_SOURCE_UNAVAILABLE",
-            attempted=True,
-            source_verified=False,
-            final_url=final_url_normalized,
-            retrieved_at=_now_iso(),
-            reason="The source redirected to a search or non-document page.",
-        )
-
-    retrieved_at = _now_iso()
+    final_url_normalized = current_url
     if not response.is_success:
         return LiveVerificationResult(
             "LIVE_SOURCE_UNAVAILABLE",

@@ -37,7 +37,7 @@ def run_audit(request: AuditRequest) -> AuditResponse:
         else:
             support = unable_to_evaluate("No unique corpus case was resolved, so rule support cannot be evaluated.")
         status = citation_status(existence.status, name_matches, link_status, support.classification)
-        needs_review = status != "VERIFIED_EXISTS" or support.classification != "SUPPORTED"
+        needs_review = status != "VERIFIED_EXISTS" or support.needs_human_review
         audits.append(CitationAudit(
             occurrence_id=citation.occurrence_id,
             raw_text=citation.raw_text,

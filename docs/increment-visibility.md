@@ -80,29 +80,81 @@ Add one permitted judgment and metadata record, rebuild the index, and audit a r
 
 ## Increment 4: Source metadata confirmation
 
-This is deferred until eLitigation or another permitted source is available.
+The backend now exposes an explicit online-verification operation. The normal
+audit request remains deterministic and offline; the endpoint is disabled by
+default and is not called by the extension yet.
 
 ### Visible changes
 
 - An official URL may receive a separate metadata-confirmed status.
 - The UI can show which fields were matched: case name, neutral citation, court, and decision date.
 - Access-controlled or unavailable pages remain clearly distinguished from confirmed public judgments.
+- `POST /api/v1/sources/verify` returns `LIVE_VERIFIED`, `LIVE_METADATA_MISMATCH`,
+  `LIVE_SOURCE_UNAVAILABLE`, or a clear skipped/unsupported status.
 
 ### Manual verification
 
-Use a permitted public judgment URL and compare the extracted metadata with the local citation. Do not bypass authentication, CAPTCHA, or access controls.
+Enable the endpoint only for the run being tested:
 
-## Increment 5: Rule-support retrieval improvements
+```bash
+ENABLE_LIVE_VERIFICATION=true uvicorn backend.app.main:app --host 127.0.0.1 --port 8001
+```
+
+Then POST one source URL and its expected metadata to
+`http://127.0.0.1:8001/api/v1/sources/verify`. A matching public judgment
+should return `LIVE_VERIFIED`, with `metadata_match` booleans and
+`retrieved_at`; a redirect records `final_url`. Do not bypass authentication,
+CAPTCHA, or access controls. Phase 3's frontend work is intentionally recorded
+separately in `docs/phase-3-frontend-online-verification.md`.
+
+## Increment 5: Safe verification test harness
 
 ### Visible changes
 
-- Evidence cards show better-ranked paragraphs.
-- Confidence and human-review indicators become more informative.
+- The default test suite uses deterministic `httpx.MockTransport` responses and
+  does not contact the internet.
+- Redirects, external redirect targets, HTTP failures, metadata mismatches, and
+  the Phase 3 payload contract are covered.
+- Exactly one real-network eLitigation smoke test is registered as `live` and is
+  skipped unless explicitly enabled.
+
+### Manual verification
+
+Run the default suite:
+
+```bash
+pytest -m "not live" -q
+```
+
+To opt into the sole live check, supply the exact case name visible on the
+approved eLitigation page:
+
+```bash
+RUN_LIVE_TESTS=1 \
+LIVE_CASE_NAME="Exact case name shown by eLitigation" \
+LIVE_NEUTRAL_CITATION="[2026] SGCA 39" \
+pytest -m live -q
+```
+
+The live test must return `LIVE_VERIFIED`; it should not be used to bypass
+access controls, CAPTCHA, or rate limits.
+
+## Increment 6: Rule-support retrieval improvements
+
+### Visible changes
+
+- Evidence cards now rank paragraphs using query coverage, term precision,
+  phrase continuity, and operative holding language rather than raw term overlap.
+- Confidence is calibrated separately for supported, uncertain, and unsupported
+  retrieval outcomes.
+- Fully supported deterministic retrieval can clear `needs_human_review` only
+  for the retrieval signal; mismatches, weak evidence, and unresolved claims
+  continue to require review.
 - Claims with no supporting passage remain `UNSUPPORTED` or `UNCERTAIN`, rather than being presented as legal conclusions.
 
 ### Manual verification
 
-Test one supported claim, one unsupported claim, and one ambiguous claim. Confirm that the paragraph text and paragraph numbers correspond to the local judgment.
+Test one supported claim, one unsupported claim, and one ambiguous claim. Confirm that the paragraph text and paragraph numbers correspond to the local judgment, that the supported claim ranks the operative holding first, and that weak or absent evidence keeps `needs_human_review` true.
 
 ## Increment 6: PDF ingestion
 
