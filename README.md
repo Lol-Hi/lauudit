@@ -10,11 +10,16 @@ external LLM API is required at runtime.
 
 ## Problem statement progress
 
-| Requirement | Current status |
-| --- | --- |
-| Hallucination: catch fake cases | **Checked off for the citation-authenticity MVP.** Deterministic extraction plus official eLitigation search/direct metadata matching detects fabricated, mismatched, and unresolvable citations. This does not prove that a legal proposition is correct. |
-| Contextual accuracy: understand why a case matters | **In progress.** Live mode authenticates the source but deliberately reports `UNABLE_TO_EVALUATE` for proposition-to-holding support until that evidence path is implemented. |
-| Scalability: evaluate thousands of queries daily | **Not yet checked off.** The current path is synchronous and has not been load-tested or given production queueing, caching, rate limiting, and monitoring. |
+- [x] **Hallucination: catch fake cases.** The citation-authenticity MVP
+  combines deterministic extraction with official eLitigation search and direct
+  metadata matching to detect fabricated, mismatched, and unresolvable
+  citations. This does not prove that a legal proposition is correct.
+- [ ] **Contextual accuracy: understand why a case matters.** Live mode
+  authenticates the source but deliberately reports `UNABLE_TO_EVALUATE` for
+  proposition-to-holding support until that evidence path is implemented.
+- [ ] **Scalability: evaluate thousands of queries daily.** The current path is
+  synchronous and has not been load-tested or given production queueing,
+  caching, rate limiting, and monitoring.
 
 ## Current architecture
 

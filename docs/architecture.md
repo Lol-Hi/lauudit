@@ -28,6 +28,12 @@ verification-source section. The renderer keeps source discovery, source
 authenticity, name matching, link mapping, and rule support as separate signals
 so one cannot silently stand in for another.
 
+The side panel is declared by `extension/manifest.json` and loads the shared
+popup renderer from `extension/src/sidepanel.html`; there is no second,
+diverging side-panel implementation. The extension requests the active page's
+host access only when required and restricts its backend permissions to the
+local HTTP service.
+
 ## Backend pipeline
 
 `backend/app/api/routes.py` validates the request and exposes the audit and
@@ -59,6 +65,45 @@ corpus and uses its exact/fuzzy lookup, link comparison, and paragraph-level
 rule-support heuristics. A local corpus miss is reported as
 `NOT_FOUND_IN_VERIFIED_CORPUS`; it is never proof that a judgment does not
 exist.
+
+## End-to-end data flow
+
+1. The user selects **Audit response** or enables live selection in the side
+   panel.
+2. The content script waits for a stable rendered region and emits text,
+   canonical Markdown, links, offsets, and capture diagnostics.
+3. The service worker posts that payload to `/api/v1/audit` on the local
+   backend. The backend prefers `response_markdown` and falls back to
+   `response_text` for older clients.
+4. Citation extraction creates one audit record per citation occurrence,
+   retaining parallel citations and body/footnote context.
+5. Live mode resolves or searches eLitigation, verifies source metadata, and
+   returns the structured result. Offline mode instead queries SQLite.
+6. The side panel displays the result while preserving separate source,
+   existence, name, link, rule, and human-review statuses.
+
+No page HTML, fetched judgment body, or source PDF is persisted by the live
+audit path. The optional corpus index is built locally and atomically from
+maintainer-provided permitted files.
+
+## Runtime configuration and testing
+
+The primary runtime controls are:
+
+- `ENABLE_LIVE_VERIFICATION=true` — default MVP mode; eLitigation is the
+  verification authority and the local corpus is not consulted.
+- `ENABLE_LIVE_VERIFICATION=false` — deterministic offline corpus mode for
+  local development and regression benchmarks.
+- `RULE_EVALUATOR=heuristic` — enables conservative paragraph evidence checks
+  only in offline mode; live mode reports rule support as unavailable.
+- `AUDIT_DB_PATH` and `CORPUS_CASES_PATH` — optional paths for offline corpus
+  data.
+
+The full local workflow is `python scripts/test_all.py`. It runs corpus
+indexing, backend tests, offline gold/adversarial benchmarks, extension syntax
+checks, frontend tests, and manifest validation. Live network tests are
+separate and opt-in. This split keeps source-authenticity behavior explicit
+while making the regression suite deterministic.
 
 ## Trust and uncertainty boundaries
 
