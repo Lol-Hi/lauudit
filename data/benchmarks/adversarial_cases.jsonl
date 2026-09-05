@@ -1,0 +1,6 @@
+{"id":"wrong-name","response_text":"Tan v Lim [2023] SGCA 12 held that contractual agreement is assessed objectively.","expected_status":"VERIFIED_EXISTS_NAME_MISMATCH"}
+{"id":"fabricated-citation","response_text":"Foo v Bar [2029] SGCA 999 held that every promise is enforceable.","expected_status":"NOT_FOUND_IN_VERIFIED_CORPUS"}
+{"id":"fabricated-link","response_text":"Lim v Tan [2023] SGCA 12 held that contractual agreement is assessed objectively.","links":[{"text":"Lim v Tan [2023] SGCA 12","href":"https://official.test/search?q=case","context":"Lim v Tan [2023] SGCA 12"}],"expected_status":"VERIFIED_EXISTS_LINK_MISMATCH"}
+{"id":"unsupported-rule","response_text":"Lim v Tan [2023] SGCA 12 held that every oral agreement is automatically valid.","expected_status":"VERIFIED_EXISTS_RULE_UNSUPPORTED"}
+{"id":"name-only","response_text":"The response cites Lim v Tan without a neutral citation.","expected_status":"VERIFIED_EXISTS_RULE_UNCERTAIN"}
+{"id":"outside-corpus","response_text":"Public Prosecutor v Outside Corpus [2030] SGHC 1 held a new rule.","expected_status":"NOT_FOUND_IN_VERIFIED_CORPUS"}

@@ -1,0 +1,8 @@
+[1] This synthetic judgment concerns a dispute about an agreement and is included only to demonstrate the local indexing pipeline.
+
+[42] The court held that contractual agreement is assessed objectively by reference to the parties' words and conduct viewed in context. A private and uncommunicated intention is not enough to establish agreement.
+
+[45] Where the parties have objectively manifested agreement, a court may enforce the resulting contractual obligation subject to the applicable defences.
+
+[60] The claim was dismissed on the facts because the claimant did not prove the alleged promise.
+

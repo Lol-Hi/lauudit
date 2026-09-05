@@ -1,0 +1,8 @@
+{"id":"gold-correct-name","status":"VERIFIED_EXISTS"}
+{"id":"gold-reported-citation","status":"VERIFIED_EXISTS"}
+{"id":"wrong-name","status":"VERIFIED_EXISTS_NAME_MISMATCH"}
+{"id":"fabricated-citation","status":"NOT_FOUND_IN_VERIFIED_CORPUS"}
+{"id":"fabricated-link","status":"VERIFIED_EXISTS_LINK_MISMATCH"}
+{"id":"unsupported-rule","status":"VERIFIED_EXISTS_RULE_UNSUPPORTED"}
+{"id":"name-only","status":"VERIFIED_EXISTS_RULE_UNCERTAIN"}
+{"id":"outside-corpus","status":"NOT_FOUND_IN_VERIFIED_CORPUS"}
