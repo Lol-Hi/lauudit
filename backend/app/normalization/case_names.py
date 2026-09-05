@@ -11,6 +11,7 @@ def normalize_case_name(value: str) -> str:
     """Normalize names for comparison while retaining every substantive word."""
     value = value.strip().upper()
     value = value.replace("VERSUS", " V ").replace("V.", " V ")
+    value = re.sub(r"\bFORMERLY\s+KNOWN\s+AS\b", "FKA", value)
     value = re.sub(r"\bPP\b", "PUBLIC PROSECUTOR", value)
     value = value.replace("&", " AND ")
     value = re.sub(r"[\u2018\u2019]", "'", value)

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Lauudit browser capture harness</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 2rem; }
+    main { max-width: 48rem; }
+    aside { border: 1px solid #ccc; padding: 1rem; }
+    button { padding: .5rem .75rem; }
+    pre { white-space: pre-wrap; background: #f5f5f5; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <header>Application navigation that must be excluded</header>
+  <main id="browser-answer" aria-label="Assistant response">
+    <h1>When is a contract enforceable?</h1>
+    <p>A contract is enforceable when it is validly formed and not prohibited by statute or public policy.</p>
+    <p><a href="https://www.elitigation.sg/gdviewer/s/1995_SGHC_114">Shell Eastern Petroleum (Pte) Ltd v Chuan Hong Auto (Pte) Ltd [1995] SGHC 114</a></p>
+  </main>
+  <aside aria-label="Sources and steps">Source cards and navigation that must be excluded.</aside>
+  <button id="capture" type="button">Capture page</button>
+  <pre id="output">Not captured</pre>
+  <script>
+    window.__lauuditListeners = [];
+    window.chrome = {
+      runtime: {
+        onMessage: {addListener(listener) { window.__lauuditListeners.push(listener); }},
+        sendMessage() {},
+      },
+    };
+  </script>
+  <script src="../src/content.js"></script>
+  <script>
+    document.getElementById("capture").addEventListener("click", () => {
+      const listener = window.__lauuditListeners[0];
+      listener({type: "COLLECT_RESPONSE_STABLE"}, {}, (payload) => {
+        document.getElementById("output").textContent = JSON.stringify(payload, null, 2);
+        window.__lauuditCapture = payload;
+      });
+    });
+  </script>
+</body>
+</html>

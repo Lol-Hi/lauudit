@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lauudit Testing"
+  short_description: "Run Lauudit backend, frontend, and integration tests"
+  default_prompt: "Use $lauudit-testing to run and interpret Lauudit backend, frontend, and browser/API integration verification."

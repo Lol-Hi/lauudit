@@ -17,6 +17,14 @@ class Settings:
     cases_path: Path = Path(os.getenv("CORPUS_CASES_PATH", "data/corpus/cases.jsonl"))
     rule_evaluator: str = os.getenv("RULE_EVALUATOR", "heuristic").lower()
     max_evidence: int = int(os.getenv("AUDIT_MAX_EVIDENCE", "3"))
+    # MVP behavior: direct, allowlisted source URLs are checked automatically
+    # after an audit. Set this to false for offline-only deployments.
+    enable_live_verification: bool = os.getenv("ENABLE_LIVE_VERIFICATION", "true").lower() == "true"
+    corpus_completeness: str = os.getenv("CORPUS_COMPLETENESS", "partial").lower()
+    corpus_notes: str = os.getenv(
+        "CORPUS_NOTES",
+        "Locally prepared permitted judgments; not a comprehensive Singapore case database.",
+    )
 
     def absolute(self, path: Path) -> Path:
         return path if path.is_absolute() else self.root / path
@@ -31,4 +39,3 @@ class Settings:
 
 
 settings = Settings()
-
