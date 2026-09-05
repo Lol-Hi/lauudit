@@ -35,6 +35,20 @@ def test_groups_parallel_citations():
     assert result[0].parallel_citations == ["[2023] SGCA 12", "[2023] 2 SLR 100"]
 
 
+def test_does_not_group_citations_from_separate_reference_lines():
+    result = extract_citations(
+        "Ting Siew May v Boon Lay Choo and another [2014] SGCA 28\n"
+        "Shell Eastern Petroleum (Pte) Ltd v Chuan Hong Auto (Pte) Ltd [1995] SGHC 114"
+    )
+
+    assert [item.provided_name for item in result] == [
+        "Ting Siew May v Boon Lay Choo and another",
+        "Shell Eastern Petroleum (Pte) Ltd v Chuan Hong Auto (Pte) Ltd",
+    ]
+    assert [item.provided_citation for item in result] == ["[2014] SGCA 28", "[1995] SGHC 114"]
+    assert all(not item.parallel_citations for item in result)
+
+
 def test_marks_numbered_footnote_context():
     result = extract_citations("See footnote 1.\n\n1. Lim v Tan [2023] SGCA 12.")
 

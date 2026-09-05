@@ -148,6 +148,23 @@ function liveVerificationMarkup(item) {
   </div>`;
 }
 
+function existenceMarkup(item) {
+  if (item.live_verification?.status === "LIVE_VERIFIED") {
+    return badge("LIVE_VERIFIED", "Verified by live source");
+  }
+  if (item.live_verification?.status === "LIVE_METADATA_MISMATCH") {
+    return badge("LIVE_METADATA_MISMATCH", "Live source metadata mismatch");
+  }
+  return badge(item.existence_status);
+}
+
+function nameMarkup(item) {
+  const match = item.live_verification?.metadata_match?.name;
+  if (match === true) return badge("LIVE_VERIFIED", "Matched live source");
+  if (match === false) return badge("LIVE_METADATA_MISMATCH", "Live source mismatch");
+  return badge(item.name_status);
+}
+
 function renderCitationCard(item) {
   const parallel = Array.isArray(item.parallel_citations) ? item.parallel_citations : [];
   const primary = item.provided_citation || parallel[0] || "—";
@@ -167,7 +184,7 @@ function renderCitationCard(item) {
     <p>Canonical: ${esc(item.canonical_name || "—")} ${item.case_id ? `(${esc(item.case_id)})` : ""}</p>
     <p>Source: ${badge(item.source_status, sourceLabel(item.source_status))}<br>${sourceLink(item)}<br>Link: ${badge(item.link_status, linkLabel)}</p>
     ${explanation ? `<p class="link-explanation">${esc(explanation)}</p>` : ""}
-    <p>Existence: ${badge(item.existence_status)}<br>Name: ${badge(item.name_status)}<br>Rule: ${badge(item.rule_support)}${item.rule_confidence != null ? ` (${esc(item.rule_confidence)})` : ""}</p>
+    <p>Existence: ${existenceMarkup(item)}<br>Name: ${nameMarkup(item)}<br>Rule: ${badge(item.rule_support)}${item.rule_confidence != null ? ` (${esc(item.rule_confidence)})` : ""}</p>
     ${item.explanation ? `<p>${esc(item.explanation)}</p>` : ""}
     ${item.needs_human_review ? '<p class="review-required">Human review required</p>' : ""}
     ${liveVerificationMarkup(item)}
@@ -181,10 +198,12 @@ export {
   citationTone,
   displayLabel,
   esc,
+  existenceMarkup,
   liveVerificationLabel,
   liveVerificationMarkup,
   liveVerificationPayload,
   liveVerificationSummary,
+  nameMarkup,
   renderCitationCard,
   safeHttpUrl,
   sourceLabel,

@@ -91,8 +91,22 @@ def run_audit(request: AuditRequest) -> AuditResponse:
                 if resolved_url:
                     url_result = classify_url(resolved_url, known_source_urls)
         live_verified = bool(live_verification and live_verification.status == "LIVE_VERIFIED")
-        status = citation_status(existence.status, name_matches, link_status, support.classification, live_verified)
+        live_mismatch = bool(live_verification and live_verification.status == "LIVE_METADATA_MISMATCH")
+        status = "LIVE_METADATA_MISMATCH" if live_mismatch else citation_status(
+            existence.status,
+            name_matches,
+            link_status,
+            support.classification,
+            live_verified,
+        )
         needs_review = status not in {"VERIFIED_EXISTS", "LIVE_VERIFIED"} or support.needs_human_review
+        explanation_prefix = (
+            "LIVE_VERIFIED."
+            if live_verified
+            else "LIVE_METADATA_MISMATCH. The discovered source did not match the cited case metadata."
+            if live_mismatch
+            else existence.status + "."
+        )
         audits.append(CitationAudit(
             occurrence_id=citation.occurrence_id,
             raw_text=citation.raw_text,
@@ -102,7 +116,7 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             context_type=citation.context_type,
             footnote_number=citation.footnote_number,
             surrounding_sentence=citation.surrounding_sentence,
-            canonical_name=case["canonical_name"] if case else None,
+            canonical_name=case["canonical_name"] if case else (live_verification.case_name if live_verification else None),
             case_id=case["case_id"] if case else None,
             source_url=case["source_url"] if case else None,
             source_status=url_result.status if resolved_url else None,
@@ -116,7 +130,7 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             link_status=link_status,
             rule_support=support.classification,
             rule_confidence=support.confidence,
-            explanation=existence.status + ". " + url_result.reason + " " + support.explanation,
+            explanation=explanation_prefix + " " + url_result.reason + " " + support.explanation,
             evidence=[Evidence(**item) for item in support.evidence],
             candidates=(existence.candidates or [])[:5],
             needs_human_review=needs_review,

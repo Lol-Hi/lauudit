@@ -2,9 +2,11 @@ import {JSDOM} from "jsdom";
 import {describe, expect, it} from "vitest";
 import {
   canVerifyOnline,
+  existenceMarkup,
   liveVerificationLabel,
   liveVerificationPayload,
   liveVerificationSummary,
+  nameMarkup,
   renderCitationCard,
   safeHttpUrl,
 } from "../src/popup-model.js";
@@ -95,6 +97,8 @@ describe("popup model", () => {
 
     expect(text).toContain("Live page, metadata mismatch");
     expect(text).toContain("Verify again");
+    expect(text).toContain("Live source metadata mismatch");
+    expect(text).toContain("Live source mismatch");
     expect(liveVerificationSummary({status: "LIVE_VERIFIED"})).toContain("Confirmed live judgment");
   });
 

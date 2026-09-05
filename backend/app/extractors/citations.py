@@ -38,8 +38,16 @@ class ExtractedCitation:
 
 
 def _sentence(text: str, start: int, end: int) -> str:
-    left = max(text.rfind(".", 0, start), text.rfind("!", 0, start), text.rfind("?", 0, start))
-    right_candidates = [x for x in (text.find(".", end), text.find("!", end), text.find("?", end)) if x >= 0]
+    left = max(
+        text.rfind(".", 0, start),
+        text.rfind("!", 0, start),
+        text.rfind("?", 0, start),
+        text.rfind("\n", 0, start),
+    )
+    right_candidates = [
+        x for x in (text.find(".", end), text.find("!", end), text.find("?", end), text.find("\n", end))
+        if x >= 0
+    ]
     right = min(right_candidates) if right_candidates else len(text)
     return text[left + 1 : right + 1].strip()
 
@@ -99,7 +107,9 @@ def _make_occurrence(text: str, matches: list[re.Match[str]], index: int) -> Ext
 
 
 def _is_parallel_gap(value: str) -> bool:
-    return bool(re.fullmatch(r"\s*(?:[,;]|and)\s*", value, flags=re.I))
+    # A line break normally separates reference-list entries, not parallel
+    # citations. Keep grouping for inline punctuation/conjunctions only.
+    return bool(re.fullmatch(r"[ \t]*(?:[,;]|and)[ \t]*", value, flags=re.I))
 
 
 def _group_parallel_matches(text: str, matches: list[re.Match[str]]) -> list[list[re.Match[str]]]:
