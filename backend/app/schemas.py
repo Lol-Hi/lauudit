@@ -151,4 +151,5 @@ class AuditResponse(BaseModel):
     summary: AuditSummary
     citations: list[CitationAudit]
     capture_diagnostics: dict[str, Any] = Field(default_factory=dict)
+    verification_authority: Literal["elitigation", "local_corpus"] = "local_corpus"
     disclaimer: str = "This tool is an audit aid, not legal advice. Human review is required."

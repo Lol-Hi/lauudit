@@ -94,6 +94,7 @@ function renderSummary(result) {
     `Audit: ${esc(result.audit_id || "—")}`,
     `Jurisdiction: ${esc(result.jurisdiction || "—")}`,
     `Corpus snapshot: ${esc(result.corpus_snapshot || "—")} ${result.corpus_snapshot ? '<button id="copy-snapshot" class="copy-button" type="button">Copy</button>' : ""}`,
+    result.verification_authority ? `Verification authority: ${esc(displayLabel(result.verification_authority))}` : "",
     result.corpus_completeness ? `Coverage: ${esc(displayLabel(result.corpus_completeness))}` : "",
     result.corpus_notes ? `Corpus notes: ${esc(result.corpus_notes)}` : "",
     result.corpus_completeness ? "A corpus miss is not proof that a case does not exist." : "",

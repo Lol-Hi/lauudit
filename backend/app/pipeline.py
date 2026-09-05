@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Optional
 
 from backend.app.config import settings
 from backend.app.corpus.database import connect, current_corpus, initialize_schema
@@ -8,29 +9,81 @@ from backend.app.extractors.citations import extract_citations
 from backend.app.extractors.links import resolve_links
 from backend.app.scoring import citation_status
 from backend.app.schemas import AuditRequest, AuditResponse, AuditSummary, CitationAudit, Evidence, LiveVerifyResponse
-from backend.app.verifiers.existence import verify_existence, verify_parallel_existence
+from backend.app.verifiers.existence import ExistenceResult, verify_existence, verify_parallel_existence
 from backend.app.verifiers.link_match import verify_link
 from backend.app.verifiers.name_match import verify_name
 from backend.app.verifiers.rule_support import evaluate_rule_support, unable_to_evaluate
 from backend.app.verifiers.url_classifier import classify_url
 from backend.app.verifiers.live_source import verify_live_source
 from backend.app.verifiers.source_search import search_elitigation
+from backend.app.normalization.case_names import name_matches_canonical
+
+
+def _verified_live_candidate(url: str, expected: dict) -> LiveVerifyResponse:
+    return LiveVerifyResponse(**verify_live_source(url, expected).__dict__)
+
+
+def _resolve_elitigation(citation, href: Optional[str], url_result, *, enabled: bool):
+    """Resolve the cited judgment from eLitigation before consulting local data."""
+    if not enabled:
+        return None, None, None
+
+    expected = {}
+    if citation.provided_citation:
+        # A neutral citation uniquely identifies the judgment and avoids
+        # rejecting a real source because the browser extracted an incomplete
+        # or wrapped party name.
+        expected["neutral_citation"] = citation.provided_citation
+    elif citation.provided_name:
+        expected["canonical_name"] = citation.provided_name
+    if not expected:
+        return None, None, None
+
+    live_verification = None
+    source_discovery = None
+    resolved_url = None
+    if url_result.status == "OFFICIAL_ELITIGATION_SOURCE":
+        live_verification = _verified_live_candidate(url_result.normalized_url, expected)
+        source_discovery = "DIRECT_ELITIGATION_LINK"
+        resolved_url = live_verification.final_url or url_result.normalized_url
+
+    if not live_verification or not live_verification.source_verified:
+        search_result = search_elitigation(citation.provided_name, citation.provided_citation)
+        candidates = []
+        for candidate in search_result.candidates:
+            candidate_result = _verified_live_candidate(candidate.url, expected)
+            candidates.append(candidate_result)
+            if candidate_result.source_verified:
+                live_verification = candidate_result
+                resolved_url = candidate_result.final_url or candidate.url
+                source_discovery = "OFFICIAL_ELITIGATION_SEARCH"
+                break
+        if live_verification is None and candidates:
+            live_verification = candidates[0]
+            resolved_url = live_verification.final_url
+            source_discovery = "OFFICIAL_ELITIGATION_SEARCH"
+
+    return live_verification, resolved_url, source_discovery
 
 
 def run_audit(request: AuditRequest) -> AuditResponse:
-    connection = connect(settings.absolute_db_path)
-    initialize_schema(connection)
-    corpus = current_corpus(connection)
+    live_authority = settings.enable_live_verification
+    connection = None
+    corpus = None
+    if not live_authority:
+        connection = connect(settings.absolute_db_path)
+        initialize_schema(connection)
+        corpus = current_corpus(connection)
     response_for_extraction = request.response_markdown or request.response_text
     extracted = extract_citations(response_for_extraction)
-    known_cases = [dict(row) for row in connection.execute("SELECT * FROM cases").fetchall()]
+    known_cases = [] if live_authority else [dict(row) for row in connection.execute("SELECT * FROM cases").fetchall()]
     known_source_urls = [item["source_url"] for item in known_cases if item.get("source_url")]
     audits: list[CitationAudit] = []
     for citation in extracted:
         link_resolution = resolve_links(citation, request.links)
         href = link_resolution.href
         url_result = classify_url(href, known_source_urls)
-        existence = (
+        existence = ExistenceResult("SOURCE_UNAVAILABLE") if live_authority else (
             verify_parallel_existence(connection, citation.provided_name, citation.parallel_citations)
             if citation.parallel_citations
             else verify_existence(connection, citation.provided_name, citation.provided_citation)
@@ -42,7 +95,11 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             if link_resolution.status == "AMBIGUOUS"
             else verify_link(href, case, known_cases)
         )
-        if case and settings.rule_evaluator == "heuristic":
+        if live_authority:
+            support = unable_to_evaluate(
+                "Rule support is not inferred from the local corpus; eLitigation authenticity does not itself prove the legal proposition."
+            )
+        elif case and settings.rule_evaluator == "heuristic":
             support = evaluate_rule_support(connection, case["case_id"], citation.surrounding_sentence, settings.max_evidence)
         elif case:
             support = unable_to_evaluate(f"Rule evaluator '{settings.rule_evaluator}' is not enabled in this first iteration.")
@@ -51,46 +108,32 @@ def run_audit(request: AuditRequest) -> AuditResponse:
         live_verification = None
         source_discovery = None
         resolved_url = url_result.normalized_url
-        expected = {
-            "canonical_name": case["canonical_name"] if case else citation.provided_name,
-        }
-        if case:
-            expected.update({
-                "neutral_citation": case.get("neutral_citation"),
-                "court": case.get("court"),
-                "court_code": case.get("court_code"),
-                "decision_date": case.get("decision_date"),
-            })
-        elif citation.provided_citation:
-            expected["neutral_citation"] = citation.provided_citation
-        expected = {key: value for key, value in expected.items() if value}
-        if settings.enable_live_verification and url_result.normalized_url and url_result.status not in {
-            "OFFICIAL_SOURCE_SEARCH_PAGE",
-            "TRUSTED_PUBLISHER_SEARCH_PAGE",
-            "MALFORMED_URL",
-        }:
-            if expected.get("canonical_name"):
-                live_result = verify_live_source(url_result.normalized_url, expected)
-                live_verification = LiveVerifyResponse(**live_result.__dict__)
-                source_discovery = "DIRECT_LINK"
-        elif settings.enable_live_verification and not href and expected.get("canonical_name"):
-            search_result = search_elitigation(
-                expected.get("canonical_name"),
-                expected.get("neutral_citation"),
+        supplied_url = url_result.normalized_url
+        if live_authority:
+            live_verification, resolved_url, source_discovery = _resolve_elitigation(
+                citation,
+                href,
+                url_result,
+                enabled=True,
             )
-            best_result = None
-            for candidate in search_result.candidates:
-                candidate_result = verify_live_source(candidate.url, expected)
-                if best_result is None or candidate_result.source_verified:
-                    best_result = candidate_result
-                if candidate_result.source_verified:
-                    break
-            if best_result is not None:
-                live_verification = LiveVerifyResponse(**best_result.__dict__)
-                resolved_url = best_result.final_url
-                source_discovery = "OFFICIAL_ELITIGATION_SEARCH"
-                if resolved_url:
-                    url_result = classify_url(resolved_url, known_source_urls)
+            if resolved_url:
+                url_result = classify_url(resolved_url, [])
+            if live_verification and live_verification.source_verified:
+                existence = ExistenceResult("VERIFIED_EXISTS", method="official_elitigation")
+                case = None
+                name_matches = (
+                    name_matches_canonical(citation.provided_name, live_verification.case_name)
+                    if citation.provided_name and live_verification.case_name
+                    else None
+                )
+                name_status = "CANONICAL_NAME_MATCH" if name_matches is True else (
+                    "VERIFIED_EXISTS_NAME_MISMATCH" if name_matches is False else "NAME_NOT_PROVIDED"
+                )
+                link_status = "NO_LINK_AVAILABLE" if not href else (
+                    "LINK_CONFIRMS_CASE"
+                    if source_discovery == "DIRECT_ELITIGATION_LINK" and supplied_url == resolved_url
+                    else "LINK_BROKEN_OR_INACCESSIBLE"
+                )
         live_verified = bool(live_verification and live_verification.status == "LIVE_VERIFIED")
         live_mismatch = bool(live_verification and live_verification.status == "LIVE_METADATA_MISMATCH")
         status = "LIVE_METADATA_MISMATCH" if live_mismatch else citation_status(
@@ -121,12 +164,12 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             surrounding_sentence=citation.surrounding_sentence,
             canonical_name=case["canonical_name"] if case else (live_verification.case_name if live_verification else None),
             case_id=case["case_id"] if case else None,
-            source_url=case["source_url"] if case else None,
+            source_url=case["source_url"] if case else (live_verification.final_url if live_verification else None),
             source_status=url_result.status if resolved_url else None,
             source_url_normalized=resolved_url,
             source_discovery=source_discovery,
             live_verification=live_verification,
-            case_exists=case is not None and existence.status == "VERIFIED_EXISTS",
+            case_exists=(case is not None and existence.status == "VERIFIED_EXISTS") or live_verified,
             existence_status=existence.status,
             name_matches=name_matches,
             name_status=name_status,
@@ -139,7 +182,8 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             needs_human_review=needs_review,
             status=status,
         ))
-    connection.close()
+    if connection is not None:
+        connection.close()
     summary = AuditSummary(
         total_citations=len(audits),
         verified_cases=sum(item.case_exists or bool(item.live_verification and item.live_verification.source_verified) for item in audits),
@@ -152,11 +196,12 @@ def run_audit(request: AuditRequest) -> AuditResponse:
     return AuditResponse(
         audit_id=f"audit-{uuid.uuid4().hex[:12]}",
         jurisdiction=request.jurisdiction,
-        corpus_snapshot=corpus["snapshot_id"] if corpus else "untracked",
-        corpus_completeness=corpus["completeness"] if corpus else "unknown",
-        corpus_notes=corpus["notes"] if corpus else "The SQLite index has no recorded corpus snapshot.",
+        corpus_snapshot=corpus["snapshot_id"] if corpus else "elitigation-live",
+        corpus_completeness=corpus["completeness"] if corpus else "official-live",
+        corpus_notes=corpus["notes"] if corpus else "Official eLitigation is authoritative for this audit; the local corpus was not consulted.",
         overall_status=overall,
         summary=summary,
         citations=audits,
         capture_diagnostics=request.capture_diagnostics,
+        verification_authority="elitigation" if live_authority else "local_corpus",
     )

@@ -23,5 +23,8 @@ def indexed_db(tmp_path: Path, monkeypatch):
     )
     db = tmp_path / "index.sqlite3"
     build_index(cases, db)
-    monkeypatch.setattr("backend.app.pipeline.settings", Settings(root=tmp_path, db_path=db, cases_path=cases))
+    monkeypatch.setattr(
+        "backend.app.pipeline.settings",
+        Settings(root=tmp_path, db_path=db, cases_path=cases, enable_live_verification=False),
+    )
     return db

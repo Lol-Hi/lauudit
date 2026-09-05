@@ -26,7 +26,7 @@ def test_extension_request_to_pdf_evidence_end_to_end(tmp_path: Path, monkeypatc
     monkeypatch.setattr(
         pipeline,
         "settings",
-        replace(settings, root=tmp_path, db_path=db, cases_path=cases),
+        replace(settings, root=tmp_path, db_path=db, cases_path=cases, enable_live_verification=False),
     )
 
     # This mirrors the object produced by extension/src/content.js and sent by
