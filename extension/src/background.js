@@ -10,8 +10,23 @@ async function getPagePayload(tabId) {
   const message = {type: "COLLECT_RESPONSE_STABLE"};
   const tabs = await chrome.tabs.sendMessage(tabId, message).catch(() => null);
   if (tabs) return tabs;
-  await chrome.scripting.executeScript({target: {tabId}, files: ["src/content.js"]});
-  return chrome.tabs.sendMessage(tabId, message);
+  try {
+    await chrome.scripting.executeScript({target: {tabId}, files: ["src/content.js"]});
+    return await chrome.tabs.sendMessage(tabId, message);
+  } catch (error) {
+    throw pageAccessError(error);
+  }
+}
+
+function pageAccessError(error) {
+  const detail = error?.message || String(error);
+  if (/cannot access contents|missing host permission|not allowed to access/i.test(detail)) {
+    return new Error(
+      "Cannot access contents of this page. Reload the extension and the tab after granting host access. "
+      + "Browser-internal pages such as chrome://, the Web Store, and extension pages cannot be audited.",
+    );
+  }
+  return error;
 }
 
 const dynamicSelectionTabs = new Map();
@@ -26,7 +41,11 @@ async function setDynamicSelectionMode(tabId, enabled) {
   const message = {type: "SET_DYNAMIC_SELECTION_MODE", enabled};
   const response = await chrome.tabs.sendMessage(tabId, message).catch(() => null);
   if (response) return response;
-  await chrome.scripting.executeScript({target: {tabId}, files: ["src/content.js"]});
+    try {
+      await chrome.scripting.executeScript({target: {tabId}, files: ["src/content.js"]});
+    } catch (error) {
+      throw pageAccessError(error);
+    }
   return chrome.tabs.sendMessage(tabId, message);
 }
 

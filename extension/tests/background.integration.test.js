@@ -101,4 +101,21 @@ describe("background online-verification integration contract", () => {
     );
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject(payload);
   });
+
+  it("explains when the active page cannot be accessed", async () => {
+    const {chrome, listener} = loadBackground(fetchMock);
+    chrome.tabs.query.mockResolvedValue([{id: 42}]);
+    chrome.tabs.sendMessage.mockRejectedValue(new Error("Could not establish connection. Receiving end does not exist."));
+    chrome.scripting.executeScript.mockRejectedValue(new Error(
+      "Cannot access contents of the page. Extension manifest must request permission to access the respective host.",
+    ));
+
+    const response = await new Promise((resolve) => {
+      listener({type: "AUDIT_ACTIVE_TAB"}, {}, resolve);
+    });
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain("Reload the extension and the tab");
+    expect(response.error).toContain("chrome://");
+  });
 });

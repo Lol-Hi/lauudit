@@ -168,6 +168,27 @@ function updateDynamicAudit(selectionId, values) {
   renderDynamicSelectionResults();
 }
 
+async function ensureCurrentPageAccess() {
+  if (!chrome.tabs?.query || !chrome.permissions?.request) return {ok: true};
+  const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+  let url;
+  try {
+    url = new URL(tab?.url || "");
+  } catch (_error) {
+    return {ok: false, error: "This browser page cannot be audited."};
+  }
+  if (!new Set(["http:", "https:"]).has(url.protocol)) {
+    return {ok: false, error: "Browser-internal pages and extension pages cannot be audited."};
+  }
+  const origin = `${url.protocol}//${url.host}/*`;
+  const alreadyGranted = await chrome.permissions.contains?.({origins: [origin]});
+  if (alreadyGranted) return {ok: true};
+  const granted = await chrome.permissions.request({origins: [origin]});
+  return granted
+    ? {ok: true}
+    : {ok: false, error: "Host access was not granted, so Lauudit cannot read this page."};
+}
+
 dynamicSelectionToggle.addEventListener("click", () => {
   const enabled = !dynamicSelectionEnabled;
   dynamicSelectionToggle.disabled = true;
@@ -209,10 +230,21 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-auditButton.addEventListener("click", () => {
+auditButton.addEventListener("click", async () => {
   auditButton.disabled = true;
   state.textContent = "Collecting the active page…";
   results.innerHTML = "";
+  let access;
+  try {
+    access = await ensureCurrentPageAccess();
+  } catch (error) {
+    access = {ok: false, error: error?.message || "Unable to request access to this page."};
+  }
+  if (!access.ok) {
+    auditButton.disabled = false;
+    state.textContent = `Audit failed: ${access.error}`;
+    return;
+  }
   chrome.runtime.sendMessage({type: "AUDIT_ACTIVE_TAB"}, (message) => {
     const runtimeError = chrome.runtime.lastError?.message;
     const backendError = message?.error;

@@ -68,8 +68,9 @@ describe("popup and background message flow", () => {
     delete globalThis.chrome;
   });
 
-  it("audits through the popup flow and renders the backend response", () => {
+  it("audits through the popup flow and renders the backend response", async () => {
     document.getElementById("audit").click();
+    await Promise.resolve();
 
     expect(document.getElementById("state").textContent).toContain("Completed audit-test");
     expect(document.getElementById("results").textContent).toContain("Lim v Tan");
