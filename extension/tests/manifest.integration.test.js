@@ -7,6 +7,7 @@ describe("extension page access contract", () => {
     const manifest = JSON.parse(readFileSync(resolve(process.cwd(), "manifest.json"), "utf8"));
 
     expect(manifest.content_scripts.some((script) => script.matches.includes("<all_urls>"))).toBe(true);
+    expect(manifest.permissions).toContain("tabs");
     expect(manifest.host_permissions).not.toContain("<all_urls>");
     expect(manifest.optional_host_permissions).toEqual(expect.arrayContaining(["http://*/*", "https://*/*"]));
   });
