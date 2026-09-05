@@ -34,6 +34,14 @@ LinkStatus = Literal[
     "LINK_POINTS_TO_SEARCH_RESULTS",
     "NO_LINK_AVAILABLE",
 ]
+SourceStatus = Literal[
+    "KNOWN_CORPUS_SOURCE",
+    "OFFICIAL_ELITIGATION_SOURCE",
+    "OFFICIAL_JUDICIARY_SOURCE",
+    "OFFICIAL_SOURCE_SEARCH_PAGE",
+    "UNVERIFIED_EXTERNAL_URL",
+    "MALFORMED_URL",
+]
 ExistenceStatus = Literal[
     "VERIFIED_EXISTS",
     "NOT_FOUND_IN_VERIFIED_CORPUS",
@@ -51,6 +59,8 @@ class CitationAudit(BaseModel):
     canonical_name: Optional[str] = None
     case_id: Optional[str] = None
     source_url: Optional[str] = None
+    source_status: Optional[SourceStatus] = None
+    source_url_normalized: Optional[str] = None
     case_exists: bool = False
     existence_status: ExistenceStatus
     name_matches: Optional[bool] = None

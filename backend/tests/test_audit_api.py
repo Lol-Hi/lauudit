@@ -21,3 +21,5 @@ def test_audit_api(indexed_db):
     assert body["citations"][0]["canonical_name"] == "Lim v Tan"
     assert body["citations"][0]["name_matches"] is False
     assert body["citations"][0]["link_status"] == "LINK_CONFIRMS_CASE"
+    assert body["citations"][0]["source_status"] == "KNOWN_CORPUS_SOURCE"
+    assert body["citations"][0]["source_url_normalized"] == "https://official.test/case-1"

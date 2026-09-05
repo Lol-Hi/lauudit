@@ -13,6 +13,7 @@ from backend.app.verifiers.existence import verify_existence
 from backend.app.verifiers.link_match import verify_link
 from backend.app.verifiers.name_match import verify_name
 from backend.app.verifiers.rule_support import evaluate_rule_support, unable_to_evaluate
+from backend.app.verifiers.url_classifier import classify_url
 
 
 def run_audit(request: AuditRequest) -> AuditResponse:
@@ -20,9 +21,11 @@ def run_audit(request: AuditRequest) -> AuditResponse:
     initialize_schema(connection)
     extracted = extract_citations(request.response_text)
     known_cases = [dict(row) for row in connection.execute("SELECT * FROM cases").fetchall()]
+    known_source_urls = [item["source_url"] for item in known_cases if item.get("source_url")]
     audits: list[CitationAudit] = []
     for citation in extracted:
         href = link_for_citation(citation, request.links)
+        url_result = classify_url(href, known_source_urls)
         existence = verify_existence(connection, citation.provided_name, citation.provided_citation)
         case = existence.case
         name_matches, name_status = verify_name(citation.provided_name, case)
@@ -44,6 +47,8 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             canonical_name=case["canonical_name"] if case else None,
             case_id=case["case_id"] if case else None,
             source_url=case["source_url"] if case else None,
+            source_status=url_result.status if href else None,
+            source_url_normalized=url_result.normalized_url,
             case_exists=case is not None and existence.status == "VERIFIED_EXISTS",
             existence_status=existence.status,
             name_matches=name_matches,
@@ -51,7 +56,7 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             link_status=link_status,
             rule_support=support.classification,
             rule_confidence=support.confidence,
-            explanation=existence.status + ". " + support.explanation,
+            explanation=existence.status + ". " + url_result.reason + " " + support.explanation,
             evidence=[Evidence(**item) for item in support.evidence],
             candidates=(existence.candidates or [])[:5],
             needs_human_review=needs_review,

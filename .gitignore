@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env.*
+!.env.example
+*.egg-info/
+data/corpus/index.sqlite3
+data/corpus/index.sqlite3-*
+*.log

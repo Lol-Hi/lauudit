@@ -6,3 +6,4 @@
 
 Documents are plain text. Blank-line-separated blocks are paragraphs. A leading number such as `[42]` preserves the judgment paragraph number for evidence display.
 
+Audit citation results also include `source_status` and `source_url_normalized`. These are offline URL provenance signals. `OFFICIAL_ELITIGATION_SOURCE` and `OFFICIAL_JUDICIARY_SOURCE` identify an official domain; they do not confirm that the page is live or that it contains the cited case. `KNOWN_CORPUS_SOURCE` means the normalized URL matches a local corpus record.
