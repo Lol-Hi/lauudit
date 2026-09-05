@@ -78,6 +78,14 @@ function verifyOnline(button) {
 
 function renderSummary(result) {
   const s = result.summary || {};
+  const capture = result.capture_diagnostics || {};
+  const captureConfidence = Number(capture.confidence);
+  const captureStatus = capture.method
+    ? `Capture: ${esc(displayLabel(capture.method))} · Confidence: ${Number.isFinite(captureConfidence) ? `${Math.round(captureConfidence * 100)}%` : "unknown"}${capture.stable === false ? " · still changing" : ""}`
+    : "";
+  const captureWarnings = Array.isArray(capture.warnings) && capture.warnings.length
+    ? `Capture warnings: ${esc(capture.warnings.map(displayLabel).join(", "))}`
+    : "";
   overallStatus.className = `overall ${toneForStatus(result.overall_status)}`;
   overallStatus.innerHTML = `<span class="overall-label">Overall status</span><strong>${esc(result.overall_status || "UNKNOWN")}</strong>`;
 
@@ -88,6 +96,8 @@ function renderSummary(result) {
     result.corpus_completeness ? `Coverage: ${esc(displayLabel(result.corpus_completeness))}` : "",
     result.corpus_notes ? `Corpus notes: ${esc(result.corpus_notes)}` : "",
     result.corpus_completeness ? "A corpus miss is not proof that a case does not exist." : "",
+    captureStatus,
+    captureWarnings,
   ].filter(Boolean).map((value) => `<span>${value}</span>`).join("");
 
   const copyButton = document.getElementById("copy-snapshot");

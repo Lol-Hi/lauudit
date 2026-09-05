@@ -14,7 +14,7 @@
     "ARTICLE", "BLOCKQUOTE", "DD", "DIV", "DT", "H1", "H2", "H3", "H4", "H5", "H6",
     "LI", "P", "PRE", "SECTION", "TD", "TH",
   ]);
-  const EXCLUDED_SELECTOR = "script, style, template, nav, aside, footer, form, textarea, input, button, [aria-hidden=\"true\"], [data-lauudit-ignore]";
+  const EXCLUDED_SELECTOR = "script, style, template, nav, aside, footer, header, form, textarea, input, button, [role=\"navigation\"], [role=\"complementary\"], [role=\"contentinfo\"], [aria-hidden=\"true\"], [data-lauudit-ignore]";
   const CANDIDATE_SELECTOR = [
     "main", "article", "[role=\"main\"]", "[role=\"article\"]", "[role=\"region\"]",
     "[aria-live]", "[data-testid]", "[id]",
@@ -43,8 +43,30 @@
     return Boolean(element?.matches?.(EXCLUDED_SELECTOR) || element?.closest?.(EXCLUDED_SELECTOR));
   }
 
+  function elementChildren(element) {
+    const children = Array.from(element?.children || []);
+    const shadowChildren = element?.shadowRoot ? Array.from(element.shadowRoot.children || []) : [];
+    return [...children, ...shadowChildren];
+  }
+
+  function descendantElements(root) {
+    const elements = [];
+    const visit = (container) => {
+      elementChildren(container).forEach((child) => {
+        elements.push(child);
+        visit(child);
+      });
+    };
+    visit(root);
+    return elements;
+  }
+
+  function matchingDescendants(root, selector) {
+    return descendantElements(root).filter((element) => element.matches?.(selector));
+  }
+
   function hasBlockDescendant(element) {
-    return Array.from(element.children || []).some((child) => {
+    return elementChildren(element).some((child) => {
       if (excluded(child)) return false;
       if (BLOCK_TAGS.has(child.tagName)) return true;
       return hasBlockDescendant(child);
@@ -52,8 +74,8 @@
   }
 
   function contentBlocks(root) {
-    if (!root?.querySelectorAll) return [];
-    const elements = [root, ...Array.from(root.querySelectorAll("*"))];
+    if (!root) return [];
+    const elements = [root, ...descendantElements(root)];
     const blocks = elements.filter((element) => {
       if (excluded(element) || !visible(element) || !nodeText(element)) return false;
       if (element === root) return !hasBlockDescendant(element);
@@ -93,13 +115,14 @@
   function measureCandidate(element) {
     const text = nodeText(element);
     const blocks = contentBlocks(element);
-    const anchors = Array.from(element.querySelectorAll("a[href]")).filter((anchor) => visible(anchor) && !excluded(anchor));
-    const headings = Array.from(element.querySelectorAll("h1, h2, h3, h4, h5, h6"));
-    const paragraphs = Array.from(element.querySelectorAll("p, li, blockquote, pre"));
-    const controls = Array.from(element.querySelectorAll("button, input, textarea, select")).length;
+    const anchors = matchingDescendants(element, "a[href]").filter((anchor) => visible(anchor) && !excluded(anchor));
+    const headings = matchingDescendants(element, "h1, h2, h3, h4, h5, h6");
+    const paragraphs = matchingDescendants(element, "p, li, blockquote, pre");
+    const controls = matchingDescendants(element, "button, input, textarea, select").length;
     const label = elementLabel(element);
+    const descendantLabels = [element, ...descendantElements(element)].map(elementLabel).join(" ");
     const positiveHints = (label.match(POSITIVE_HINTS) || []).length;
-    const negativeHints = (label.match(NEGATIVE_HINTS) || []).length;
+    const negativeHints = (descendantLabels.match(NEGATIVE_HINTS) || []).length;
     const linkTextLength = anchors.reduce((total, anchor) => total + nodeText(anchor).length, 0);
     const linkDensity = text.length ? linkTextLength / text.length : 0;
     const role = element.getAttribute("role") || "";
@@ -145,8 +168,9 @@
   }
 
   function candidateElements() {
-    const candidates = [document.body, ...Array.from(document.querySelectorAll(CANDIDATE_SELECTOR))];
-    const structural = Array.from(document.querySelectorAll("article, main, section, div, li, blockquote, pre"))
+    const elements = descendantElements(document.body);
+    const candidates = [document.body, ...elements.filter((element) => element.matches?.(CANDIDATE_SELECTOR))];
+    const structural = elements.filter((element) => /^(ARTICLE|MAIN|SECTION|DIV|LI|BLOCKQUOTE|PRE)$/.test(element.tagName))
       .filter((element) => element.childElementCount > 0 || nodeText(element).length >= 160)
       .slice(0, 180);
     candidates.push(...structural);
@@ -180,7 +204,7 @@
   }
 
   function excludedRegions() {
-    return Array.from(document.querySelectorAll(EXCLUDED_SELECTOR))
+    return matchingDescendants(document.body, EXCLUDED_SELECTOR)
       .filter((element) => visible(element))
       .slice(0, 40)
       .map((element) => ({region: rootDescription(element), text_length: nodeText(element).length, reason: "excluded-selector"}));
@@ -188,6 +212,24 @@
 
   function isPageStable() {
     return !lastMutationAt || Date.now() - lastMutationAt >= STABILITY_QUIET_MS;
+  }
+
+  function frameDiagnostics() {
+    const frames = Array.from(document.querySelectorAll("iframe, frame"));
+    let inaccessible = 0;
+    frames.forEach((frame) => {
+      try {
+        if (!frame.contentDocument) inaccessible += 1;
+      } catch (_error) {
+        inaccessible += 1;
+      }
+    });
+    const allElements = [document.body, ...descendantElements(document.body)].filter(Boolean);
+    return {
+      iframe_count: frames.length,
+      inaccessible_iframe_count: inaccessible,
+      open_shadow_root_count: allElements.filter((element) => element.shadowRoot).length,
+    };
   }
 
   function collectPageCapture({waitedMs = 0} = {}) {
@@ -204,7 +246,7 @@
       responseText += text;
       const end = responseText.length;
       let linkCursor = 0;
-      Array.from(element.querySelectorAll("a[href]"))
+      matchingDescendants(element, "a[href]")
         .filter((anchor) => visible(anchor) && !excluded(anchor))
         .forEach((anchor) => {
           const linkText = nodeText(anchor);
@@ -238,10 +280,12 @@
     }));
     const unmappedLinkCount = links.filter((link) => link.mapping_status !== "EXACT").length;
     const stable = isPageStable();
+    const frames = frameDiagnostics();
     const warnings = [...selection.warnings];
     if (!stable) warnings.push("CONTENT_RECENTLY_CHANGED");
     if (unmappedLinkCount) warnings.push("LINK_OFFSETS_UNMAPPED");
     if (selection.confidence < 0.6) warnings.push("LOW_CAPTURE_CONFIDENCE");
+    if (frames.inaccessible_iframe_count) warnings.push("INACCESSIBLE_IFRAMES");
     return {
       response_text: responseText,
       links,
@@ -263,6 +307,7 @@
         link_count: links.length,
         unmapped_link_count: unmappedLinkCount,
         omitted_content: root !== document.body,
+        ...frames,
         warnings,
       },
     };

@@ -30,6 +30,7 @@ def test_audit_api(indexed_db):
     assert body["citations"][0]["text_start"] == 10
     assert body["citations"][0]["text_end"] == 24
     assert body["citations"][0]["needs_human_review"] is True
+    assert body["capture_diagnostics"]["root"] == "main[answer-panel]"
 
 
 def test_audit_api_exposes_parallel_and_footnote_metadata(indexed_db):
