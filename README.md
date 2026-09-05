@@ -63,11 +63,13 @@ JSON
 
 Live source verification is enabled by default for the MVP. After
 `POST /api/v1/audit`, direct source URLs are checked automatically when they
-are on the server-side allowlist; search pages, malformed URLs, and unknown
-hosts are skipped without a network request. The result is metadata-only and
-ephemeral, and is kept separate from the offline `source_status`. Set
-`ENABLE_LIVE_VERIFICATION=false` for an offline-only deployment. The explicit
-`POST /api/v1/sources/verify` endpoint remains available for retries.
+are on the server-side allowlist. If a citation has no hyperlink, the backend
+performs a bounded exact-citation search on the official eLitigation judgments
+index, then verifies the discovered direct judgment URL. Search pages,
+malformed URLs, and unknown hosts are never treated as case confirmation. The
+result is metadata-only and kept separate from the offline `source_status`.
+Set `ENABLE_LIVE_VERIFICATION=false` for an offline-only deployment. The
+explicit `POST /api/v1/sources/verify` endpoint remains available for retries.
 
 ## Corpus maintenance
 

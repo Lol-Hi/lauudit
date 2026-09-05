@@ -8,6 +8,7 @@ from backend.app import pipeline
 from backend.app.config import settings
 from backend.app.main import app
 from backend.app.verifiers.live_source import verify_live_source
+from backend.app.verifiers.source_search import SearchCandidate, SearchResult
 
 
 JUDGMENT_HTML = """
@@ -200,3 +201,29 @@ def test_audit_path_automatically_verifies_allowlisted_direct_sources(monkeypatc
     assert citation["source_status"] == "OFFICIAL_ELITIGATION_SOURCE"
     assert citation["live_verification"]["status"] == "LIVE_VERIFIED"
     assert citation["live_verification"]["attempted"] is True
+
+
+def test_audit_searches_when_a_citation_has_no_hyperlink(monkeypatch, indexed_db):
+    monkeypatch.setattr(pipeline, "settings", replace(pipeline.settings, enable_live_verification=True))
+    monkeypatch.setattr(
+        pipeline,
+        "search_elitigation",
+        lambda canonical_name, neutral_citation: SearchResult(
+            attempted=True,
+            query=f'"{neutral_citation}"',
+            candidates=[SearchCandidate("https://www.elitigation.sg/gdviewer/s/2023_SGCA_12")],
+        ),
+    )
+    monkeypatch.setattr(pipeline, "verify_live_source", _mocked_verifier)
+
+    response = TestClient(app).post(
+        "/api/v1/audit",
+        json={"response_text": "Lim v Tan [2023] SGCA 12 held that contractual agreement is assessed objectively."},
+    )
+
+    assert response.status_code == 200
+    citation = response.json()["citations"][0]
+    assert citation["link_status"] == "NO_LINK_AVAILABLE"
+    assert citation["source_discovery"] == "OFFICIAL_ELITIGATION_SEARCH"
+    assert citation["source_url_normalized"] == "https://www.elitigation.sg/gdviewer/s/2023_SGCA_12"
+    assert citation["live_verification"]["status"] == "LIVE_VERIFIED"

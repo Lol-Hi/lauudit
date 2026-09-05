@@ -3,7 +3,15 @@ from __future__ import annotations
 from typing import Optional
 
 
-def citation_status(existence_status: str, name_matches: Optional[bool], link_status: str, rule_support: str) -> str:
+def citation_status(
+    existence_status: str,
+    name_matches: Optional[bool],
+    link_status: str,
+    rule_support: str,
+    live_verified: bool = False,
+) -> str:
+    if live_verified:
+        return "LIVE_VERIFIED"
     if existence_status == "NOT_FOUND_IN_VERIFIED_CORPUS":
         return existence_status
     if existence_status in {"AMBIGUOUS_MATCH", "SOURCE_UNAVAILABLE"}:

@@ -84,12 +84,22 @@ class LiveVerificationResult:
 class _ClassTextParser(HTMLParser):
     """Collect text from the metadata classes used by public judgment pages."""
 
-    TARGET_CLASSES = {"HN-CaseName", "HN-NeutralCit", "Judg-Date-Reserved", "CaseNumber"}
+    TARGET_CLASSES = {
+        "HN-CaseName",
+        "HN-NeutralCit",
+        "Judg-Date-Reserved",
+        "CaseNumber",
+        "caseTitle",
+        "Citation",
+        "txt-label",
+        "txt-body",
+    }
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._captures: dict[str, list[list[str]]] = {}
         self._active: list[tuple[str, int, list[str]]] = []
+        self.visible: list[str] = []
         self._depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
@@ -111,6 +121,7 @@ class _ClassTextParser(HTMLParser):
             self.handle_endtag(tag)
 
     def handle_data(self, data: str) -> None:
+        self.visible.append(data)
         for _, _, buffer in self._active:
             buffer.append(data)
 
@@ -321,7 +332,7 @@ def _parse_metadata(
     except Exception:
         return None, None, None, None, None
 
-    citation_values = parser.values("HN-NeutralCit")
+    citation_values = parser.values("HN-NeutralCit") + parser.values("Citation")
     citation = next((value for value in citation_values if NEUTRAL_CITATION_RE.search(value)), None)
     if not citation:
         match = NEUTRAL_CITATION_RE.search(html)
@@ -329,10 +340,23 @@ def _parse_metadata(
     citation_match = NEUTRAL_CITATION_RE.search(citation or "")
     court_code = citation_match.group("code").upper() if citation_match else None
 
-    names = [value for value in parser.values("HN-CaseName") if not NEUTRAL_CITATION_RE.search(value)]
+    names = [
+        value
+        for value in parser.values("HN-CaseName") + parser.values("caseTitle")
+        if not NEUTRAL_CITATION_RE.search(value)
+    ]
     case_name = names[0] if names else None
 
     date_value = next(iter(parser.values("Judg-Date-Reserved")), None)
+    if not date_value or not DATE_RE.search(date_value):
+        date_value = next(
+            (
+                value
+                for value in parser.values("txt-body") + [" ".join(parser.visible)]
+                if DATE_RE.search(value)
+            ),
+            None,
+        )
     decision_date = None
     if date_value:
         date_match = DATE_RE.search(date_value)
@@ -343,6 +367,8 @@ def _parse_metadata(
             )
 
     court_text = next(iter(parser.values("CaseNumber")), None)
+    if not court_text:
+        court_text = " ".join(parser.values("txt-body")) or None
     return case_name, citation, court_code, decision_date, court_text
 
 

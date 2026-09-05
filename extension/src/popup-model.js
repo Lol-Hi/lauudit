@@ -35,13 +35,14 @@ function esc(value) {
 
 function toneForStatus(status) {
   const value = String(status ?? "").trim().toUpperCase();
-  if (["PASS", "VERIFIED_EXISTS", "SUPPORTED", "LINK_CONFIRMS_CASE"].includes(value)) return "good";
+  if (["PASS", "VERIFIED_EXISTS", "LIVE_VERIFIED", "SUPPORTED", "LINK_CONFIRMS_CASE"].includes(value)) return "good";
   if (["REVIEW_REQUIRED", "NO_CITATIONS", "UNCERTAIN", "UNABLE_TO_EVALUATE", "AMBIGUOUS_MATCH", "SOURCE_UNAVAILABLE", "NO_LINK_AVAILABLE"].includes(value)) return "warn";
   if (value.includes("MISMATCH") || value.includes("NOT_FOUND") || value.includes("UNSUPPORTED") || value.includes("BROKEN") || value.includes("DIFFERENT_CASE") || value.includes("SEARCH_RESULTS")) return "bad";
   return "warn";
 }
 
 function citationTone(item) {
+  if (item.live_verification?.status === "LIVE_VERIFIED") return "good";
   const tones = [item.status, item.existence_status, item.name_status, item.link_status, item.rule_support]
     .filter(Boolean)
     .map(toneForStatus);
@@ -76,7 +77,10 @@ function sourceLink(item) {
   const safeUrl = safeHttpUrl(item.source_url_normalized || item.source_url);
   if (!displayValue) return "—";
   if (!safeUrl) return `<span class="unsafe-url">${esc(displayValue)} (not a safe HTTP(S) link)</span>`;
-  return `<a href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(displayValue)}</a>`;
+  const discovery = item.source_discovery === "OFFICIAL_ELITIGATION_SEARCH"
+    ? " <span class=\"source-discovery\">(found by official search)</span>"
+    : "";
+  return `<a href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(displayValue)}</a>${discovery}`;
 }
 
 function linkExplanation(status) {

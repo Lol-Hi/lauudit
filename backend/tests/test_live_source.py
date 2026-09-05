@@ -74,6 +74,30 @@ def test_elitigation_case_name_with_bare_br_tags_is_extracted():
     assert result.case_name == "Howe Wen Khong Rocky and others v Attorney-General"
 
 
+def test_elitigation_legacy_case_title_layout_is_extracted():
+    html = """
+    <h2><span class="caseTitle">Ting Siew May <em>v</em> Boon Lay Choo and another</span>
+      <span class="Citation offhyperlink">[2014] SGCA 28</span></h2>
+    <table id="info-table"><tr class="info-row"><td class="txt-label">Decision Date</td><td class="txt-body">26 May 2014</td></tr>
+      <tr class="info-row"><td class="txt-label">Tribunal/Court</td><td class="txt-body">Court of Appeal</td></tr></table>
+    """
+    result = verify_live_source(
+        "https://www.elitigation.sg/gdviewer/s/2014_SGCA_28",
+        {
+            "canonical_name": "Ting Siew May v Boon Lay Choo and another",
+            "neutral_citation": "[2014] SGCA 28",
+            "court": "Court of Appeal",
+            "decision_date": "2014-05-26",
+        },
+        client_factory=client_factory(
+            lambda request: httpx.Response(200, headers={"content-type": "text/html"}, text=html)
+        ),
+    )
+
+    assert result.status == "LIVE_VERIFIED"
+    assert result.case_name == "Ting Siew May v Boon Lay Choo and another"
+
+
 def test_metadata_mismatch_is_not_verified():
     result = verify_live_source(
         "https://www.elitigation.sg/gdviewer/s/2023_SGCA_12",

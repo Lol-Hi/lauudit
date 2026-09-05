@@ -10,6 +10,8 @@ explicit retry action.
 - Automatically verify eligible direct source URLs after each audit when
   `ENABLE_LIVE_VERIFICATION=true` (the MVP default), while retaining an
   explicit retry action on each citation card.
+- When no hyperlink is supplied, search the official eLitigation judgments
+  index by exact neutral citation, then verify the discovered direct URL.
 - Do not download, cache, or persist the judgment in the extension. The
   backend endpoint returns metadata only and keeps the response ephemeral.
 - Show live verification as a separate result from the offline `source_status`.
@@ -62,11 +64,11 @@ Before sending, omit empty optional fields and disable the action when
    `live_verification`.
 3. Add a `Verify online` or `Verify again` button to each citation card only when the citation
    has a direct normalized source URL.
-3. On click, send `VERIFY_SOURCE_ONLINE` for that card and render a pending,
+4. On click, send `VERIFY_SOURCE_ONLINE` for that card and render a pending,
    success, mismatch, unavailable, or disabled state in the same card.
-4. Display the returned `final_url`, `retrieved_at`, and field-level
+5. Display the returned `final_url`, `retrieved_at`, and field-level
    `metadata_match` values. Do not overwrite the offline `source_status`.
-5. Include a concise disclosure: “This performs one read-only request to an
+6. Include a concise disclosure: “This performs one read-only request to an
    allowlisted public source. It does not prove the legal proposition and may
    be unavailable.”
 
@@ -85,6 +87,8 @@ function liveVerificationLabel(result) {
 
 - The audit endpoint automatically checks an eligible official direct URL when
   live verification is enabled, and remains offline when the setting is false.
+- A citation without a hyperlink can be found through the official search index
+  and then confirmed against the discovered judgment metadata.
 - No extension code writes source HTML, PDF bytes, or fetched metadata to
   `chrome.storage`.
 - A direct judgment URL can be verified with one deliberate click.

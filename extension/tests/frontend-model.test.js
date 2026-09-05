@@ -97,4 +97,15 @@ describe("popup model", () => {
     expect(text).toContain("Verify again");
     expect(liveVerificationSummary({status: "LIVE_VERIFIED"})).toContain("Confirmed live judgment");
   });
+
+  it("labels a source discovered by the official search", () => {
+    const dom = new JSDOM(`<main>${renderCitationCard({...citation,
+      source_url: null,
+      source_url_normalized: "https://www.elitigation.sg/gdviewer/s/2014_SGCA_28",
+      source_status: "OFFICIAL_ELITIGATION_SOURCE",
+      source_discovery: "OFFICIAL_ELITIGATION_SEARCH",
+    })}</main>`);
+
+    expect(dom.window.document.body.textContent).toContain("found by official search");
+  });
 });

@@ -69,7 +69,7 @@
 
   function highlightTone(status) {
     const value = String(status ?? "").trim().toUpperCase();
-    if (["VERIFIED_EXISTS", "SUPPORTED", "LINK_CONFIRMS_CASE"].includes(value)) return "verified";
+    if (["VERIFIED_EXISTS", "LIVE_VERIFIED", "SUPPORTED", "LINK_CONFIRMS_CASE"].includes(value)) return "verified";
     if (["UNCERTAIN", "UNABLE_TO_EVALUATE", "AMBIGUOUS_MATCH", "SOURCE_UNAVAILABLE", "NO_LINK_AVAILABLE"].includes(value)) return "uncertain";
     if (value.includes("MISMATCH") || value.includes("NOT_FOUND") || value.includes("UNSUPPORTED") || value.includes("BROKEN") || value.includes("DIFFERENT_CASE") || value.includes("SEARCH_RESULTS")) return "error";
     return "uncertain";
@@ -217,4 +217,3 @@
     if (dynamicSelectionEnabled) setTimeout(submitDynamicSelection, 0);
   });
 })();
-

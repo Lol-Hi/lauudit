@@ -18,7 +18,17 @@ until an approved text layer or OCR-processed copy is prepared.
 Audit evidence includes `paragraph`, optional `page`, `text`, `score`, and
 `text_source`. Page is null for plain-text evidence.
 
-Audit citation results also include `source_status` and `source_url_normalized`. These are offline URL provenance signals. `OFFICIAL_ELITIGATION_SOURCE` and `OFFICIAL_JUDICIARY_SOURCE` identify an official domain; `TRUSTED_PUBLISHER_SOURCE` identifies a Singapore Law Watch publisher URL. None of these statuses confirms that the page is live or that it contains the cited case. `KNOWN_CORPUS_SOURCE` means the normalized URL matches a local corpus record. Search-page statuses are discovery signals only.
+Audit citation results also include `source_status`, `source_url_normalized`, and
+the optional `source_discovery` marker. These are offline URL provenance and
+discovery signals. `OFFICIAL_ELITIGATION_SOURCE` and
+`OFFICIAL_JUDICIARY_SOURCE` identify an official domain;
+`TRUSTED_PUBLISHER_SOURCE` identifies a Singapore Law Watch publisher URL.
+None of these statuses confirms that the page is live or that it contains the
+cited case. `KNOWN_CORPUS_SOURCE` means the normalized URL matches a local
+corpus record. `OFFICIAL_ELITIGATION_SEARCH` means the backend found the
+direct URL through the official eLitigation judgments index; the separate
+`live_verification` result contains the metadata comparison. Search-page
+statuses are discovery signals only.
 
 Citation extraction also exposes `parallel_citations` for grouped parallel references, `context_type` (`body` or `footnote`), and an optional `footnote_number`. `provided_citation` remains the primary citation for backward compatibility. Link matching may return `LINK_SPLIT_OR_AMBIGUOUS` when adjacent citation fragments point to different URLs.
 
