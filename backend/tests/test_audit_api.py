@@ -47,6 +47,22 @@ def test_audit_api_exposes_parallel_and_footnote_metadata(indexed_db):
     assert citation["footnote_number"] == "1"
 
 
+def test_audit_api_extracts_from_explicit_markdown_payload(indexed_db):
+    client = TestClient(app)
+    response = client.post("/api/v1/audit", json={
+        "response_text": "The plain-text fallback does not contain a citation.",
+        "response_markdown": "**Lim v Tan** [2023] SGCA 12 held that contractual agreement is assessed objectively.",
+        "response_format": "markdown",
+        "capture_diagnostics": {"method": "semantic-dom-markdown", "format": "markdown"},
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["total_citations"] == 1
+    assert body["citations"][0]["provided_citation"] == "[2023] SGCA 12"
+    assert body["capture_diagnostics"]["format"] == "markdown"
+
+
 def test_audit_api_marks_split_links_as_ambiguous(indexed_db):
     client = TestClient(app)
     response = client.post("/api/v1/audit", json={

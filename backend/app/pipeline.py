@@ -21,7 +21,8 @@ def run_audit(request: AuditRequest) -> AuditResponse:
     connection = connect(settings.absolute_db_path)
     initialize_schema(connection)
     corpus = current_corpus(connection)
-    extracted = extract_citations(request.response_text)
+    response_for_extraction = request.response_markdown or request.response_text
+    extracted = extract_citations(response_for_extraction)
     known_cases = [dict(row) for row in connection.execute("SELECT * FROM cases").fetchall()]
     known_source_urls = [item["source_url"] for item in known_cases if item.get("source_url")]
     audits: list[CitationAudit] = []

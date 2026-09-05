@@ -63,12 +63,16 @@ describe("content script page reading", () => {
 
     expect(response.capture_diagnostics.root).toContain("main[answer-panel]");
     expect(response.capture_diagnostics.fallback_to_body).toBe(false);
-    expect(response.capture_diagnostics.method).toBe("semantic-dom");
+    expect(response.capture_diagnostics.method).toBe("semantic-dom-markdown");
+    expect(response.capture_diagnostics.format).toBe("markdown");
     expect(response.capture_diagnostics.confidence).toBeGreaterThan(0.6);
     expect(response.candidate_regions.some((candidate) => candidate.selected)).toBe(true);
     expect(response.excluded_regions.some((region) => region.region.startsWith("nav"))).toBe(true);
     expect(response.response_text).toContain("When is a contract enforceable?");
     expect(response.response_text).toContain("Shell Eastern Petroleum (Pte) Ltd v Chuan Hong Auto (Pte) Ltd [1995] SGHC 114");
+    expect(response.response_markdown).toBe(response.response_text);
+    expect(response.response_markdown).toContain("# When is a contract enforceable?");
+    expect(response.response_markdown).toContain("- [Shell Eastern Petroleum (Pte) Ltd v Chuan Hong Auto (Pte) Ltd [1995] SGHC 114](https://www.elitigation.sg/gdviewer/s/1995_SGHC_114)");
     expect(response.response_text).not.toContain("Navigation that must not enter");
     expect(response.response_text).not.toContain("Sources and steps that must not enter");
 
@@ -145,5 +149,30 @@ describe("content script page reading", () => {
     expect(response.response_text).toContain("open shadow root");
     expect(response.links[0].mapping_status).toBe("EXACT");
     expect(response.capture_diagnostics.open_shadow_root_count).toBe(1);
+  });
+
+  it("preserves common chatbot semantics as markdown instead of flattening them", () => {
+    document.body.innerHTML = `
+      <main aria-label="Formatted answer">
+        <h2>General principle</h2>
+        <p>A <strong>valid</strong> contract may include <em>important</em> terms.</p>
+        <blockquote>Terms should be read in context.</blockquote>
+        <ol><li>Offer</li><li>Acceptance</li></ol>
+        <p><a href="https://official.test/case">Lim v Tan [2023] SGCA 12</a></p>
+      </main>
+    `;
+    const {listener} = loadContentScript();
+    let response;
+
+    listener({type: "COLLECT_RESPONSE"}, {}, (payload) => {
+      response = payload;
+    });
+
+    expect(response.response_markdown).toContain("## General principle");
+    expect(response.response_markdown).toContain("A **valid** contract may include *important* terms.");
+    expect(response.response_markdown).toContain("> Terms should be read in context.");
+    expect(response.response_markdown).toContain("1. Offer\n2. Acceptance");
+    expect(response.response_markdown).toContain("[Lim v Tan [2023] SGCA 12](https://official.test/case)");
+    expect(response.links[0].mapping_status).toBe("EXACT");
   });
 });

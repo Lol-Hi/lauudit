@@ -25,6 +25,8 @@ class ContentBlock(BaseModel):
 
 class AuditRequest(BaseModel):
     response_text: str = Field(min_length=1)
+    response_markdown: Optional[str] = Field(default=None, min_length=1)
+    response_format: Literal["plain_text", "markdown"] = "plain_text"
     links: list[LinkInput] = Field(default_factory=list)
     content_blocks: list[ContentBlock] = Field(default_factory=list)
     candidate_regions: list[dict[str, Any]] = Field(default_factory=list)

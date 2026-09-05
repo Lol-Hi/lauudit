@@ -86,6 +86,102 @@
     return blocks.length ? blocks : [root];
   }
 
+  const MARKDOWN_BLOCK_TAGS = new Set([
+    "ADDRESS", "ARTICLE", "BLOCKQUOTE", "DIV", "DL", "DT", "DD", "FIGCAPTION", "FIGURE",
+    "H1", "H2", "H3", "H4", "H5", "H6", "LI", "OL", "P", "PRE", "SECTION", "TABLE", "TR", "UL",
+  ]);
+
+  function inlineMarkdown(value) {
+    return String(value || "").replace(/\s+/g, " ");
+  }
+
+  function markdownChildNodes(element) {
+    const lightChildren = Array.from(element?.childNodes || []);
+    const shadowChildren = element?.shadowRoot ? Array.from(element.shadowRoot.childNodes || []) : [];
+    return [...lightChildren, ...shadowChildren];
+  }
+
+  function markdownChildren(element, options = {}) {
+    let output = "";
+    markdownChildNodes(element).forEach((child) => {
+      if (excluded(child)) return;
+      const rendered = markdownNode(child, options);
+      if (!rendered) return;
+      const block = child.nodeType === Node.ELEMENT_NODE && MARKDOWN_BLOCK_TAGS.has(child.tagName);
+      if (block && output.trim()) output = `${output.trimEnd()}\n\n`;
+      output += rendered;
+    });
+    return output;
+  }
+
+  function markdownNode(node, options = {}) {
+    if (node.nodeType === Node.TEXT_NODE) return inlineMarkdown(node.nodeValue);
+    if (node.nodeType !== Node.ELEMENT_NODE || excluded(node)) return "";
+    const tag = node.tagName;
+    if (tag === "BR") return "\n";
+    if (tag === "A") {
+      const label = markdownChildren(node, {inline: true}).trim();
+      const href = node.href || node.getAttribute("href") || "";
+      return label && href ? `[${label}](${String(href).replaceAll(")", "%29")})` : label;
+    }
+    if (tag === "EM" || tag === "I") return `*${markdownChildren(node, {inline: true}).trim()}*`;
+    if (tag === "STRONG" || tag === "B") return `**${markdownChildren(node, {inline: true}).trim()}**`;
+    if (tag === "DEL" || tag === "S" || tag === "STRIKE") return `~~${markdownChildren(node, {inline: true}).trim()}~~`;
+    if (tag === "CODE" && node.parentElement?.tagName !== "PRE") return `\`${markdownChildren(node, {inline: true}).trim()}\``;
+    if (tag === "PRE") return `\`\`\`\n${node.textContent || ""}\n\`\`\``;
+    if (/^H[1-6]$/.test(tag)) return `${"#".repeat(Number(tag.slice(1)))} ${markdownChildren(node, {inline: true}).trim()}`;
+    if (tag === "UL" || tag === "OL") {
+      const items = elementChildren(node).filter((child) => child.tagName === "LI" && !excluded(child));
+      return items.map((item, index) => {
+        const body = markdownChildren(item, {inline: true}).trim();
+        return `${tag === "OL" ? `${index + 1}.` : "-"} ${body}`;
+      }).join("\n");
+    }
+    if (tag === "LI") return markdownChildren(node, options).trim();
+    if (tag === "BLOCKQUOTE") {
+      return markdownChildren(node).trim().split("\n").map((line) => `> ${line}`).join("\n");
+    }
+    if (tag === "TABLE") {
+      const rows = elementChildren(node).flatMap((section) => section.tagName === "TBODY" || section.tagName === "THEAD"
+        ? elementChildren(section).filter((row) => row.tagName === "TR")
+        : section.tagName === "TR" ? [section] : []);
+      return rows.map((row) => `| ${elementChildren(row).map((cell) => markdownChildren(cell, {inline: true}).trim()).join(" | ")} |`).join("\n");
+    }
+    return markdownChildren(node, options).trim();
+  }
+
+  function domToMarkdown(root) {
+    return markdownNode(root).replace(/^\s+|\s+$/g, "");
+  }
+
+  function markdownSegments(root, responseMarkdown) {
+    const segments = [];
+    let offset = 0;
+    markdownChildNodes(root).forEach((child) => {
+      if (child.nodeType === Node.ELEMENT_NODE && excluded(child)) return;
+      const text = markdownNode(child).replace(/^\s+|\s+$/g, "");
+      if (!text) return;
+      const start = responseMarkdown.indexOf(text, offset);
+      if (start < 0) return;
+      const end = start + text.length;
+      segments.push({
+        id: `block-${segments.length + 1}`,
+        tag: child.nodeType === Node.ELEMENT_NODE ? child.tagName.toLowerCase() : "text",
+        text,
+        start,
+        end,
+      });
+      offset = end;
+    });
+    return segments.length ? segments : (responseMarkdown ? [{
+      id: "block-1",
+      tag: root?.tagName?.toLowerCase() || "document",
+      text: responseMarkdown,
+      start: 0,
+      end: responseMarkdown.length,
+    }] : []);
+  }
+
   function startMutationObserver() {
     if (mutationObserver || typeof MutationObserver !== "function" || !document.body) return;
     mutationObserver = new MutationObserver(() => {
@@ -247,44 +343,44 @@
     };
   }
 
-  function collectPageCapture({waitedMs = 0} = {}) {
+  function collectPageCapture({waitedMs = 0, rootOverride = null, captureMode = "page"} = {}) {
     startMutationObserver();
     const selection = chooseResponseRoot();
-    const root = selection.root;
-    const blocks = contentBlocks(root);
+    const root = rootOverride || selection.root;
+    const responseMarkdown = domToMarkdown(root);
+    const structuredBlocks = markdownSegments(root, responseMarkdown);
     const links = [];
-    let responseText = "";
-    const structuredBlocks = blocks.map((element, blockIndex) => {
-      const text = nodeText(element);
-      if (responseText) responseText += "\n\n";
-      const start = responseText.length;
-      responseText += text;
-      const end = responseText.length;
-      let linkCursor = 0;
-      matchingDescendants(element, "a[href]")
-        .filter((anchor) => visible(anchor) && !excluded(anchor))
-        .forEach((anchor) => {
-          const linkText = nodeText(anchor);
-          if (!linkText) return;
-          const nextStart = text.indexOf(linkText, linkCursor);
-          const localStart = nextStart >= 0 ? nextStart : text.indexOf(linkText);
-          const mapped = localStart >= 0 && text.slice(localStart, localStart + linkText.length) === linkText;
-          const link = {
-            text: linkText,
-            href: anchor.href,
-            context: text,
-            block_id: `block-${blockIndex + 1}`,
-            mapping_status: mapped ? "EXACT" : "UNMAPPED",
-          };
-          if (mapped) {
-            link.start = start + localStart;
-            link.end = start + localStart + linkText.length;
-            linkCursor = Math.max(linkCursor, localStart + linkText.length);
-          }
-          links.push(link);
-        });
-      return {id: `block-${blockIndex + 1}`, tag: element.tagName.toLowerCase(), text, start, end};
-    });
+    let linkCursor = 0;
+    matchingDescendants(root, "a[href]")
+      .filter((anchor) => visible(anchor) && !excluded(anchor))
+      .forEach((anchor) => {
+        const linkText = inlineMarkdown(nodeText(anchor)).trim();
+        if (!linkText) return;
+        const renderedLink = markdownNode(anchor);
+        const renderedStart = responseMarkdown.indexOf(renderedLink, linkCursor);
+        const labelStart = renderedStart >= 0
+          ? responseMarkdown.indexOf(linkText, renderedStart) < renderedStart + renderedLink.length
+            ? responseMarkdown.indexOf(linkText, renderedStart)
+            : -1
+          : responseMarkdown.indexOf(linkText, linkCursor);
+        const mapped = labelStart >= 0 || renderedStart >= 0;
+        const start = labelStart >= 0 ? labelStart : renderedStart;
+        const end = labelStart >= 0 ? labelStart + linkText.length : renderedStart + renderedLink.length;
+        const block = mapped && structuredBlocks.find((candidate) => start >= candidate.start && start < candidate.end);
+        const link = {
+          text: linkText,
+          href: anchor.href,
+          context: responseMarkdown,
+          block_id: block?.id || structuredBlocks[0]?.id || null,
+          mapping_status: mapped ? "EXACT" : "UNMAPPED",
+        };
+        if (mapped) {
+          link.start = start;
+          link.end = end;
+          linkCursor = link.end;
+        }
+        links.push(link);
+      });
     const candidateRegions = selection.ranked.slice(0, 12).map((candidate, index) => ({
       candidate_id: `candidate-${index + 1}`,
       region: rootDescription(candidate.element),
@@ -302,13 +398,17 @@
     if (selection.confidence < 0.6) warnings.push("LOW_CAPTURE_CONFIDENCE");
     if (frames.inaccessible_iframe_count) warnings.push("INACCESSIBLE_IFRAMES");
     return {
-      response_text: responseText,
+      response_text: responseMarkdown,
+      response_markdown: responseMarkdown,
+      response_format: "markdown",
       links,
       content_blocks: structuredBlocks,
       candidate_regions: candidateRegions,
       excluded_regions: excludedRegions(),
       capture_diagnostics: {
-        method: "semantic-dom",
+        method: "semantic-dom-markdown",
+        format: "markdown",
+        capture_mode: captureMode,
         root: rootDescription(root),
         fallback_to_body: root === document.body,
         confidence: selection.confidence,
@@ -318,7 +418,8 @@
         candidate_count: selection.ranked.length,
         selected_score: selection.ranked[0]?.score ?? null,
         block_count: structuredBlocks.length,
-        text_length: responseText.length,
+        text_length: responseMarkdown.length,
+        markdown_length: responseMarkdown.length,
         link_count: links.length,
         unmapped_link_count: unmappedLinkCount,
         omitted_content: root !== document.body,
