@@ -43,8 +43,8 @@ Regardless of the frontend runner, syntax-check every changed extension script:
 ```bash
 node --check extension/src/background.js
 node --check extension/src/content.js
+node --check extension/src/popup-model.js
 node --check extension/src/popup.js
-node --check extension/src/sidepanel.js
 ```
 
 Report static checks separately from actual frontend test cases.

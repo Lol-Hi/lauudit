@@ -102,7 +102,7 @@ def run_audit(request: AuditRequest) -> AuditResponse:
         elif case and settings.rule_evaluator == "heuristic":
             support = evaluate_rule_support(connection, case["case_id"], citation.surrounding_sentence, settings.max_evidence)
         elif case:
-            support = unable_to_evaluate(f"Rule evaluator '{settings.rule_evaluator}' is not enabled in this first iteration.")
+            support = unable_to_evaluate(f"Rule evaluator '{settings.rule_evaluator}' is not enabled in this deployment.")
         else:
             support = unable_to_evaluate("No unique corpus case was resolved, so rule support cannot be evaluated.")
         live_verification = None

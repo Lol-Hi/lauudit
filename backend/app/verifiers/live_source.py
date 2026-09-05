@@ -422,7 +422,7 @@ def verify_live_source(
         with client_factory(
             follow_redirects=False,
             timeout=timeout,
-            headers={"User-Agent": "Lauudit-Verifier/0.1 (read-only hackathon prototype)"},
+            headers={"User-Agent": "Lauudit-Verifier/0.1 (read-only source verification)"},
         ) as client:
             for _ in range(MAX_REDIRECTS + 1):
                 response = client.get(current_url)

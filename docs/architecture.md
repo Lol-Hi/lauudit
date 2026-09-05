@@ -1,7 +1,80 @@
 # Architecture
 
-The extension reads visible DOM content on a user action. It builds a page-agnostic semantic capture by ranking visible candidate regions, excluding common page chrome, preserving block/link offsets, and reporting capture confidence and stability. The service worker waits for a quiet DOM before forwarding the payload to the local FastAPI service. The service uses deterministic extraction, SQLite exact/fuzzy lookup, link metadata comparison, and paragraph token-overlap retrieval with conservative thresholds. The browser then displays the JSON result and highlights extracted citation text.
+Lauudit is a local Chrome Manifest V3 extension backed by a local FastAPI
+service. The browser captures a visible legal-AI answer, sends a structured
+payload to `127.0.0.1:8000`, and renders citation-level findings in the side
+panel. The default audit path is live: official eLitigation resolution is the
+authority for whether a cited Singapore judgment can be authenticated. The
+local SQLite corpus is an optional offline mode, not a claim that the official
+corpus is complete.
 
-The reader is deliberately not tied to a LawNet-specific selector. It uses semantic HTML, ARIA roles, layout visibility, text structure, link density, nested exclusion hints, open shadow-root traversal, and mutation stability. Candidate selection is explainable through `candidate_regions` and `capture_diagnostics`; low-confidence or incomplete captures are reported rather than silently treated as complete.
+## Browser capture
 
-The local corpus is deliberately a declared boundary. A corpus miss is `NOT_FOUND_IN_VERIFIED_CORPUS`, not a claim that no such case exists.
+`extension/src/content.js` builds a page-agnostic capture from the rendered
+page. It ranks candidate answer regions using semantic HTML, ARIA roles, text
+structure, layout visibility, link density, exclusion hints, and mutation
+stability. It traverses open shadow roots, preserves block and hyperlink
+offsets, and reconstructs canonical Markdown where the page exposes structured
+text. It reports `response_text`, `response_markdown`, links, content blocks,
+candidate regions, excluded regions, and capture diagnostics. No LawNet-only
+selector is required and the extension does not intercept site network
+requests.
+
+`extension/src/background.js` waits for a quiet capture, requests host access
+when needed, and forwards the payload to the local FastAPI service.
+`extension/src/popup.js` and `extension/src/popup-model.js` render the audit
+summary, citation statuses, live verification results, and a unified
+verification-source section. The renderer keeps source discovery, source
+authenticity, name matching, link mapping, and rule support as separate signals
+so one cannot silently stand in for another.
+
+## Backend pipeline
+
+`backend/app/api/routes.py` validates the request and exposes the audit and
+explicit source-verification endpoints. `backend/app/extractors/citations.py`
+deterministically extracts neutral citations, case names, parallel citations,
+context, and source offsets from the captured Markdown/text. Link mapping and
+URL classification are handled separately.
+
+With `ENABLE_LIVE_VERIFICATION=true` (the default),
+`backend/app/pipeline.py`:
+
+1. extracts citations from canonical Markdown when available;
+2. resolves a direct allowlisted source or performs a bounded exact search on
+   the official eLitigation index;
+3. fetches only approved public judgment metadata, follows only approved
+   redirects, and compares the discovered name/citation metadata with the
+   citation; and
+4. returns authenticity, name, link, and rule-support results without opening
+   or consulting the local corpus.
+
+The live verifier is metadata-only. It does not download judgments into the
+repository or infer that a legal proposition is correct merely because a
+judgment exists. A successful source match therefore checks citation
+authenticity/existence, while `rule_support` remains `UNABLE_TO_EVALUATE` in
+live mode until a separate proposition-to-holding evidence path is enabled.
+
+With `ENABLE_LIVE_VERIFICATION=false`, the backend opens the optional SQLite
+corpus and uses its exact/fuzzy lookup, link comparison, and paragraph-level
+rule-support heuristics. A local corpus miss is reported as
+`NOT_FOUND_IN_VERIFIED_CORPUS`; it is never proof that a judgment does not
+exist.
+
+## Trust and uncertainty boundaries
+
+Live fetching is limited to the configured official eLitigation, judiciary, and
+trusted publisher hosts. Search pages, malformed URLs, arbitrary external
+links, failed metadata matches, ambiguous extraction, and low-confidence page
+captures remain visible as review-required findings. The system stores neither
+the browser page nor fetched judgment content as part of an audit request.
+
+The three problem areas are intentionally separate:
+
+- Hallucination/citation authenticity is the checked-off MVP slice: the system
+  can detect fabricated or mismatched citations by deterministic extraction
+  plus live official-source metadata verification.
+- Contextual accuracy is not yet checked off: current live audits do not claim
+  that the cited judgment supports the surrounding legal proposition.
+- Scalability is not yet checked off: the current request path is synchronous
+  and has not been load-tested or equipped with production queueing, caching,
+  rate limiting, and operational monitoring for thousands of daily queries.

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -24,7 +25,6 @@ JS_FILES = (
     ROOT / "extension/src/content.js",
     ROOT / "extension/src/popup-model.js",
     ROOT / "extension/src/popup.js",
-    ROOT / "extension/src/sidepanel.js",
 )
 
 
@@ -43,7 +43,7 @@ def python_executable() -> str:
     return str(candidate) if candidate.is_file() else sys.executable
 
 
-def run_process(label: str, command: Sequence[str]) -> StepResult:
+def run_process(label: str, command: Sequence[str], *, env: dict[str, str] | None = None) -> StepResult:
     try:
         completed = subprocess.run(
             list(command),
@@ -51,6 +51,7 @@ def run_process(label: str, command: Sequence[str]) -> StepResult:
             capture_output=True,
             text=True,
             check=False,
+            env=env,
         )
     except OSError as exc:
         return StepResult(label, False, f"could not start command: {exc}")
@@ -120,9 +121,17 @@ def main() -> int:
     if args.skip_benchmarks:
         print("[SKIP] Benchmarks: skipped by request")
     else:
+        benchmark_env = os.environ.copy()
+        benchmark_env["ENABLE_LIVE_VERIFICATION"] = "false"
         for benchmark in BENCHMARKS:
             label = "Gold benchmark" if benchmark.name == "gold_cases.jsonl" else "Adversarial benchmark"
-            results.append(run_process(label, [runner, "scripts/run_benchmark.py", str(benchmark)]))
+            results.append(
+                run_process(
+                    label,
+                    [runner, "scripts/run_benchmark.py", str(benchmark)],
+                    env=benchmark_env,
+                )
+            )
 
     node = shutil.which("node")
     if node:

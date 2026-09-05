@@ -1,45 +1,88 @@
-# Lauudit — Local Singapore Legal-AI Citation Auditor
+# Lauudit — Legal-AI citation auditor with live Singapore judgment verification
 
-This repository is a first-iteration, local-only prototype. A Chrome Manifest V3 extension captures the visible rendered response and hyperlinks, sends them to a FastAPI backend on `127.0.0.1`, and receives a structured audit. No LangSmith, OpenRouter, cloud database, or external LLM API is required at runtime.
+Lauudit is a local Chrome Manifest V3 extension and FastAPI service for
+auditing citations in rendered legal-AI answers. The browser captures the
+answer as structured text/Markdown with links and offsets, the backend extracts
+and verifies citations, and the side panel shows citation-level findings. Live
+verification is enabled by default: official eLitigation resolution is the
+source of truth for citation authenticity in the MVP. No cloud database or
+external LLM API is required at runtime.
 
-## What data is required?
+## Problem statement progress
 
-To run the demo, no additional data is required: the repository contains two clearly marked synthetic sample judgments under `data/corpus/documents/`.
+| Requirement | Current status |
+| --- | --- |
+| Hallucination: catch fake cases | **Checked off for the citation-authenticity MVP.** Deterministic extraction plus official eLitigation search/direct metadata matching detects fabricated, mismatched, and unresolvable citations. This does not prove that a legal proposition is correct. |
+| Contextual accuracy: understand why a case matters | **In progress.** Live mode authenticates the source but deliberately reports `UNABLE_TO_EVALUATE` for proposition-to-holding support until that evidence path is implemented. |
+| Scalability: evaluate thousands of queries daily | **Not yet checked off.** The current path is synchronous and has not been load-tested or given production queueing, caching, rate limiting, and monitoring. |
 
-To audit real Singapore cases, the team must supply permitted plain-text or PDF judgments and metadata. The recommended discovery source is the Singapore Law Watch [Judgments page](https://www.singaporelawwatch.sg/Judgments); use its judgment/PDF link as provenance after the team has manually confirmed that the document may be retained and indexed. Put public/demo text or PDFs in `data/corpus/documents/`, or put restricted files in the ignored `data/corpus/private_documents/` directory, and add one JSON object per line to `data/corpus/cases.jsonl`. The metadata must include `case_id`, `canonical_name`, `aliases`, `neutral_citation` or `reported_citations`, `court`, `court_code`, `decision_date`, `source_url`, `document_path`, and `source_type`. The corpus is not assumed to be comprehensive, so a missing case is reported as `NOT_FOUND_IN_VERIFIED_CORPUS`, never as proof that the case does not exist.
+## Current architecture
 
-The sample records are synthetic and are useful only for wiring tests. They are not legal authorities.
+The system has four boundaries:
+
+1. **Browser capture** — `extension/src/content.js` ranks visible answer
+   regions using semantic HTML, ARIA roles, layout/text structure, link
+   density, exclusion hints, open shadow roots, and mutation stability. It
+   emits `response_text`, canonical `response_markdown`, links, content
+   blocks, offsets, candidate regions, and capture diagnostics. It is not tied
+   to a LawNet-specific selector and does not intercept site network requests.
+2. **Extension transport and UI** — `extension/src/background.js` waits for a
+   stable capture, requests per-site access when necessary, and sends the
+   payload to `127.0.0.1:8000`. `extension/src/popup.js` and
+   `extension/src/popup-model.js` render the audit, including the unified
+   verification-source section and separate source, name, link, existence, and
+   rule-support signals.
+3. **Deterministic backend pipeline** — `backend/app/extractors/` parses case
+   names, neutral/parallel citations, context, links, and offsets. The API
+   validates the capture, then `backend/app/pipeline.py` combines extraction,
+   URL classification, source resolution, metadata comparison, and explicit
+   uncertainty statuses.
+4. **Verification authority** — with `ENABLE_LIVE_VERIFICATION=true` (the
+   default), the backend does not open or consult the local corpus. It checks a
+   direct allowlisted source or performs a bounded exact search on official
+   eLitigation, then verifies the discovered judgment metadata. With the flag
+   set to `false`, the optional SQLite corpus provides offline existence,
+   link, and conservative rule-support checks. A local corpus miss is never
+   treated as proof that a judgment does not exist.
+
+For the detailed component map, see
+[`docs/architecture.md`](docs/architecture.md).
 
 ## Setup
-
-Navigate to your `lauudit` directory first
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
-python scripts/build_index.py
 uvicorn backend.app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Check the backend with `curl http://127.0.0.1:8000/health`.
+Check the service with `curl http://127.0.0.1:8000/health`. Building the local
+index is only required for offline mode or corpus maintenance:
+
+```bash
+python scripts/build_index.py
+```
 
 ## Load the Chrome extension
 
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Choose **Load unpacked** and select `/Users/luckheng/dev/lauudit/extension` (the directory containing `manifest.json`). Do not select `extension/test-pages` or the sample HTML file; those are test-page content, not extension packages.
-4. Open the sample page separately. The most reliable option is to serve it locally:
+1. Open `chrome://extensions` and enable **Developer mode**.
+2. Choose **Load unpacked** and select this repository's `extension` directory
+   (the directory containing `manifest.json`). Do not select
+   `extension/test-pages`.
+3. Serve the sample page in a separate terminal:
 
    ```bash
    python3 -m http.server 8080 --directory extension/test-pages
    ```
 
-   Then open `http://127.0.0.1:8080/sample-legal-ai-response.html` in Chrome. Alternatively, open the HTML file directly with a `file:///...` URL and enable **Allow access to file URLs** on the extension’s Details page.
+   Open `http://127.0.0.1:8080/sample-legal-ai-response.html` in Chrome.
+4. Click the extension icon, grant the requested active-page access if Chrome
+   asks, and choose **Audit response**.
 
-5. Click the extension icon and choose **Audit response**.
-
-The extension reads the rendered DOM only. It does not intercept site network requests and sends captured data only to the local backend. The test page includes examples of verified, name-mismatched, fabricated, link-mismatched, unsupported, and citation-free cases.
+The sample page includes verified, name-mismatched, fabricated, link-mismatched,
+unsupported, and citation-free examples. Browser-internal pages cannot be
+audited by Chrome extensions.
 
 ## API
 
@@ -49,85 +92,89 @@ POST /api/v1/audit
 POST /api/v1/sources/verify
 ```
 
-Example:
+The audit request accepts `response_text` and, when available,
+`response_markdown`, plus links, content blocks, capture diagnostics, page URL,
+and jurisdiction. The backend prefers canonical Markdown for extraction. A
+minimal request is:
 
 ```bash
 curl -s http://127.0.0.1:8000/api/v1/audit \
   -H 'content-type: application/json' \
-  --data @- <<'JSON'
-{"response_text":"The court in Lim v Tan [2023] SGCA 12 held that a contract requires objective agreement.","links":[],"page_url":"http://localhost","jurisdiction":"Singapore","as_of_date":"2026-09-05"}
-JSON
+  --data '{"response_text":"The court in Lim v Tan [2023] SGCA 12 held that a contract requires objective agreement.","links":[],"page_url":"http://localhost","jurisdiction":"Singapore"}'
 ```
 
-`RULE_EVALUATOR=heuristic` is the default and is fully offline. `local_model` is reserved for a future Ollama/local inference adapter; the current implementation intentionally returns `UNABLE_TO_EVALUATE` for that mode instead of contacting a service.
+The response identifies `verification_authority` as `elitigation` in the
+default live mode or `local_corpus` in offline mode. `RULE_EVALUATOR=heuristic`
+is used only by offline corpus mode; `local_model` is reserved for a future
+inference adapter and currently returns `UNABLE_TO_EVALUATE` rather than
+contacting a service.
 
-Live source verification is enabled by default for the MVP. After
-`POST /api/v1/audit`, direct source URLs are checked automatically when they
-are on the server-side allowlist. If a citation has no hyperlink, the backend
-performs a bounded exact-citation search on the official eLitigation judgments
-index, then verifies the discovered direct judgment URL. Search pages,
-malformed URLs, and unknown hosts are never treated as case confirmation. The
-result is metadata-only and kept separate from the offline `source_status`.
-Set `ENABLE_LIVE_VERIFICATION=false` for an offline-only deployment. The
-explicit `POST /api/v1/sources/verify` endpoint remains available for retries.
+Live verification is metadata-only and read-only. Direct URLs are fetched only
+when their host is allowlisted. Citations without links use bounded exact
+eLitigation search followed by direct judgment verification. Search pages,
+malformed URLs, unknown hosts, failed metadata matches, and ambiguous captures
+remain review-required findings. The explicit source-verification endpoint is
+available for a retry.
 
-## Corpus maintenance
+## Optional offline corpus mode
 
-After adding or changing `cases.jsonl` or documents, rebuild the index:
+The repository contains synthetic sample records under `data/corpus/`; they
+are test fixtures, not legal authorities. For a permitted private corpus, add
+metadata to `data/corpus/cases.jsonl` and documents to the configured document
+directories, then run:
 
 ```bash
 python scripts/build_index.py
 ```
 
-The indexer validates required fields, document paths, duplicate case IDs, duplicate citations, duplicate canonical names/aliases, ISO decision dates, source URLs, and provenance timestamps. It exits non-zero when malformed records are found. Each successful build creates a content-derived corpus snapshot and records SHA-256 hashes for the metadata file and every indexed document. Rebuilding writes a temporary SQLite database and atomically replaces the active index only after validation and indexing succeed. A Git-ignored `data/corpus/build_report.json` receipt is also written for the successful build.
+The indexer validates required fields, duplicate identifiers/citations/names,
+dates, URLs, document paths, and provenance. It builds a content-derived
+SQLite snapshot atomically and never downloads `source_url`. Restricted source
+files and generated indexes are Git-ignored. Do not commit real judgments
+without confirming redistribution rights.
 
-The corpus build is intentionally offline: it never downloads `source_url` or any document. Runtime audit verification may make one bounded, read-only metadata request per eligible allowlisted direct URL; it never saves the fetched document. Permitted PDFs may be indexed directly from `data/corpus/documents/` or the ignored `data/corpus/private_documents/` directory; `pypdf` extracts their text locally and the original PDF is not copied into SQLite. Both `source_pdfs/` and `private_documents/` are excluded from Git by default, as is the generated SQLite index. Do not commit real judgments unless the team has verified its redistribution rights.
-
-To explicitly re-check stale allowlisted source URLs and update only the
-current snapshot's `case_provenance` rows, run the maintenance verifier:
+To re-check stale allowlisted source URLs without changing the audit path:
 
 ```bash
 python scripts/verify_live_sources.py --delay 1
 ```
 
-Use `--force` to re-check fresh records, or `--max-age-days 0` to make every
-record eligible. This command may access eLitigation, Singapore Courts, or
-Singapore Law Watch, follows only approved redirects, and never runs as part
-of `/api/v1/audit` or saves fetched documents. Stop and review the result if a
-source reports an access block or CAPTCHA.
-
-Set `CORPUS_COMPLETENESS=partial` for the normal curated corpus. `comprehensive` should only be used after the team has documented the scope and coverage of the collection; it is not the default.
+This maintenance command is bounded, read-only, and never saves fetched
+judgment content.
 
 ## Tests
 
-Run the complete local verification workflow:
+Run the complete local workflow:
 
 ```bash
 .venv/bin/python scripts/test_all.py
 ```
 
-This rebuilds the corpus index, runs the backend tests, executes the gold and
-adversarial benchmarks, checks extension JavaScript syntax, and validates the
-extension manifest. Use `--skip-benchmarks` for a faster test-only loop.
-
-The individual test command remains available when iterating on a specific
-backend test:
+For a faster loop without benchmarks:
 
 ```bash
-pytest -m "not live" -q
+.venv/bin/python scripts/test_all.py --skip-benchmarks
 ```
 
-The default test suite does not contact the internet: automatic verification is
-mocked or exercised with untrusted test hosts. There is exactly one opt-in
-eLitigation end-to-end test; it downloads the public `[2026] SGCA 39` PDF into
-pytest's temporary directory, indexes it, and sends a simulated extension
-request through `/api/v1/audit`. Run it only after confirming access is permitted:
+The declared frontend suite is run from `extension/`:
 
 ```bash
-RUN_LIVE_TESTS=1 \
-pytest -m live -q
+cd extension && npm test
 ```
 
-The tests cover citation extraction, name normalization, exact/fuzzy/ambiguous existence, link outcomes, cautious rule support, and the API.
+The default backend tests are offline and do not contact legal-source sites:
 
-This is an audit aid, not legal advice. Its output requires human review, especially for `UNCERTAIN`, `AMBIGUOUS_MATCH`, corpus misses, link failures, and rule findings.
+```bash
+.venv/bin/pytest backend/tests -m 'not live'
+```
+
+One opt-in end-to-end test exercises public eLitigation access. Run it only
+after confirming that network access is permitted:
+
+```bash
+RUN_LIVE_TESTS=1 .venv/bin/pytest backend/tests -m live -q
+```
+
+This is an audit aid, not legal advice. Human review remains required for
+metadata mismatches, ambiguous or low-confidence captures, unavailable
+sources, and all contextual legal conclusions.
