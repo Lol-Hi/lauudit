@@ -76,6 +76,19 @@ Set `CORPUS_COMPLETENESS=partial` for the normal curated corpus. `comprehensive`
 
 ## Tests
 
+Run the complete local verification workflow:
+
+```bash
+.venv/bin/python scripts/test_all.py
+```
+
+This rebuilds the corpus index, runs the backend tests, executes the gold and
+adversarial benchmarks, checks extension JavaScript syntax, and validates the
+extension manifest. Use `--skip-benchmarks` for a faster test-only loop.
+
+The individual test command remains available when iterating on a specific
+backend test:
+
 ```bash
 pytest -q
 ```
