@@ -35,7 +35,16 @@ function esc(value) {
 
 function toneForStatus(status) {
   const value = String(status ?? "").trim().toUpperCase();
-  if (["PASS", "VERIFIED_EXISTS", "LIVE_VERIFIED", "SUPPORTED", "LINK_CONFIRMS_CASE"].includes(value)) return "good";
+  if ([
+    "PASS",
+    "VERIFIED_EXISTS",
+    "LIVE_VERIFIED",
+    "SUPPORTED",
+    "LINK_CONFIRMS_CASE",
+    "OFFICIAL_ELITIGATION_SOURCE",
+    "OFFICIAL_JUDICIARY_SOURCE",
+  ].includes(value)) return "good";
+  if (value === "VERIFIED_EXISTS_NAME_MISMATCH") return "warn";
   if (["REVIEW_REQUIRED", "NO_CITATIONS", "UNCERTAIN", "UNABLE_TO_EVALUATE", "AMBIGUOUS_MATCH", "SOURCE_UNAVAILABLE", "NO_LINK_AVAILABLE"].includes(value)) return "warn";
   if (value.includes("MISMATCH") || value.includes("NOT_FOUND") || value.includes("UNSUPPORTED") || value.includes("BROKEN") || value.includes("DIFFERENT_CASE") || value.includes("SEARCH_RESULTS")) return "bad";
   return "warn";
@@ -161,7 +170,7 @@ function existenceMarkup(item) {
 function nameMarkup(item) {
   const match = item.live_verification?.metadata_match?.name;
   if (match === true) return badge("LIVE_VERIFIED", "Matched live source");
-  if (match === false) return badge("LIVE_METADATA_MISMATCH", "Live source mismatch");
+  if (match === false) return badge("VERIFIED_EXISTS_NAME_MISMATCH", "Name differs from canonical source");
   return badge(item.name_status);
 }
 

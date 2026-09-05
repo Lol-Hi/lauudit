@@ -9,6 +9,7 @@ import {
   nameMarkup,
   renderCitationCard,
   safeHttpUrl,
+  toneForStatus,
 } from "../src/popup-model.js";
 
 const citation = {
@@ -36,6 +37,14 @@ const citation = {
 };
 
 describe("popup model", () => {
+  it("uses green for official sources and yellow for name mismatches", () => {
+    expect(toneForStatus("OFFICIAL_ELITIGATION_SOURCE")).toBe("good");
+    expect(toneForStatus("OFFICIAL_JUDICIARY_SOURCE")).toBe("good");
+    expect(toneForStatus("VERIFIED_EXISTS_NAME_MISMATCH")).toBe("warn");
+    expect(nameMarkup({name_status: "VERIFIED_EXISTS_NAME_MISMATCH"})).toContain("warn");
+    expect(nameMarkup({live_verification: {metadata_match: {name: false}}})).toContain("warn");
+  });
+
   it("renders grouped citations, context, provenance, evidence, and review state", () => {
     const dom = new JSDOM(`<main>${renderCitationCard(citation)}</main>`);
     const text = dom.window.document.body.textContent;
@@ -98,7 +107,7 @@ describe("popup model", () => {
     expect(text).toContain("Live page, metadata mismatch");
     expect(text).toContain("Verify again");
     expect(text).toContain("Live source metadata mismatch");
-    expect(text).toContain("Live source mismatch");
+    expect(text).toContain("Name differs from canonical source");
     expect(liveVerificationSummary({status: "LIVE_VERIFIED"})).toContain("Confirmed live judgment");
   });
 
