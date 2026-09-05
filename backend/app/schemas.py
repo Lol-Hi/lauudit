@@ -20,10 +20,39 @@ class AuditRequest(BaseModel):
     as_of_date: Optional[str] = None
 
 
+class ExpectedMetadata(BaseModel):
+    canonical_name: str = Field(min_length=1)
+    neutral_citation: Optional[str] = None
+    court: Optional[str] = None
+    court_code: Optional[str] = None
+    decision_date: Optional[str] = None
+
+
+class LiveVerifyRequest(BaseModel):
+    source_url: str = Field(min_length=1)
+    expected: ExpectedMetadata
+
+
+class LiveVerifyResponse(BaseModel):
+    status: str
+    attempted: bool
+    source_verified: bool
+    final_url: Optional[str] = None
+    retrieved_at: Optional[str] = None
+    metadata_match: dict[str, Optional[bool]] = Field(default_factory=dict)
+    case_name: Optional[str] = None
+    neutral_citation: Optional[str] = None
+    court_code: Optional[str] = None
+    decision_date: Optional[str] = None
+    reason: str = ""
+
+
 class Evidence(BaseModel):
     paragraph: int
     text: str
     score: Optional[float] = None
+    page: Optional[int] = None
+    text_source: str = "plain_text"
 
 
 RuleStatus = Literal["SUPPORTED", "UNSUPPORTED", "UNCERTAIN", "UNABLE_TO_EVALUATE"]

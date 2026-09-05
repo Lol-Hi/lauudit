@@ -25,6 +25,7 @@ def test_audit_api(indexed_db):
     assert body["citations"][0]["link_status"] == "LINK_CONFIRMS_CASE"
     assert body["citations"][0]["source_status"] == "KNOWN_CORPUS_SOURCE"
     assert body["citations"][0]["source_url_normalized"] == "https://official.test/case-1"
+    assert body["citations"][0]["needs_human_review"] is True
 
 
 def test_audit_api_exposes_parallel_and_footnote_metadata(indexed_db):

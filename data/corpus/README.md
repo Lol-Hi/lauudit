@@ -1,6 +1,12 @@
 # Local corpus
 
-Place permitted plain-text Singapore judgments in `documents/` and add matching metadata records to `cases.jsonl`. The two checked-in records are synthetic demo documents and are not legal authorities. Do not add documents unless the team has permission to use and index them.
+Place permitted plain-text or PDF Singapore judgments in `documents/` and add matching metadata records to `cases.jsonl`. The two checked-in records are synthetic demo documents and are not legal authorities. Do not add documents unless the team has permission to use and index them.
+
+PDF records may omit `text_source` for a normal text-based PDF (`native_pdf` is
+the default), or set it to `ocr` when the PDF's text layer was produced by an
+approved OCR process. The indexer records page references and the text origin
+on every extracted evidence paragraph. It does not perform OCR; a scanned PDF
+without a text layer fails with an actionable error.
 
 For a private/local corpus, use `private_documents/`; for optional locally retained source PDFs, use `source_pdfs/`. Both directories are Git-ignored. These files are prepared once by the corpus maintainer and are never downloaded by the Chrome extension or by the audit API. The index stores extracted paragraph text and provenance hashes in SQLite, not the original PDFs.
 

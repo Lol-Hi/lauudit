@@ -4,7 +4,19 @@
 
 `case_id`, `canonical_name`, `aliases`, `neutral_citation` or `reported_citations`, `court`, `court_code`, `decision_date`, `source_url`, `document_path`, and `source_type`.
 
-Documents are plain text. Blank-line-separated blocks are paragraphs. A leading number such as `[42]` preserves the judgment paragraph number for evidence display.
+Documents may be permitted plain-text files or local PDFs. Blank-line-separated
+blocks are paragraphs. A leading number such as `[42]` preserves the judgment
+paragraph number for evidence display. PDF paragraphs also retain their
+one-based page number.
+
+For PDF records, `text_source` may be `native_pdf` or `ocr`; it defaults to
+`native_pdf` when omitted. Plain-text records default to `plain_text`. `ocr`
+means that the maintainer has identified the extracted text as OCR-derived; the
+indexer does not perform OCR itself. A PDF with no extractable text is rejected
+until an approved text layer or OCR-processed copy is prepared.
+
+Audit evidence includes `paragraph`, optional `page`, `text`, `score`, and
+`text_source`. Page is null for plain-text evidence.
 
 Audit citation results also include `source_status` and `source_url_normalized`. These are offline URL provenance signals. `OFFICIAL_ELITIGATION_SOURCE` and `OFFICIAL_JUDICIARY_SOURCE` identify an official domain; `TRUSTED_PUBLISHER_SOURCE` identifies a Singapore Law Watch publisher URL. None of these statuses confirms that the page is live or that it contains the cited case. `KNOWN_CORPUS_SOURCE` means the normalized URL matches a local corpus record. Search-page statuses are discovery signals only.
 

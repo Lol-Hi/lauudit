@@ -108,41 +108,160 @@ Add one permitted judgment and metadata record, rebuild the index, and audit a r
 
 ## Increment 4: Source metadata confirmation
 
-This is deferred until eLitigation or another permitted source is available.
+The backend now exposes an explicit online-verification operation. The normal
+audit request remains deterministic and offline; the endpoint is disabled by
+default and is not called by the extension yet.
 
 ### Visible changes
 
 - An official URL may receive a separate metadata-confirmed status.
 - The UI can show which fields were matched: case name, neutral citation, court, and decision date.
 - Access-controlled or unavailable pages remain clearly distinguished from confirmed public judgments.
+- `POST /api/v1/sources/verify` returns `LIVE_VERIFIED`, `LIVE_METADATA_MISMATCH`,
+  `LIVE_SOURCE_UNAVAILABLE`, or a clear skipped/unsupported status.
 
 ### Manual verification
 
-Use a permitted public judgment URL and compare the extracted metadata with the local citation. Do not bypass authentication, CAPTCHA, or access controls.
+Enable the endpoint only for the run being tested:
 
-## Increment 5: Rule-support retrieval improvements
+```bash
+ENABLE_LIVE_VERIFICATION=true uvicorn backend.app.main:app --host 127.0.0.1 --port 8001
+```
+
+Then POST one source URL and its expected metadata to
+`http://127.0.0.1:8001/api/v1/sources/verify`. A matching public judgment
+should return `LIVE_VERIFIED`, with `metadata_match` booleans and
+`retrieved_at`; a redirect records `final_url`. Do not bypass authentication,
+CAPTCHA, or access controls. Phase 3's frontend work is intentionally recorded
+separately in `docs/phase-3-frontend-online-verification.md`.
+
+## Increment 5: Safe verification test harness
 
 ### Visible changes
 
-- Evidence cards show better-ranked paragraphs.
-- Confidence and human-review indicators become more informative.
+- The default test suite uses deterministic `httpx.MockTransport` responses and
+  does not contact the internet.
+- Redirects, external redirect targets, HTTP failures, metadata mismatches, and
+  the Phase 3 payload contract are covered.
+- Exactly one real-network eLitigation smoke test is registered as `live` and is
+  skipped unless explicitly enabled.
+
+### Manual verification
+
+Run the default suite:
+
+```bash
+pytest -m "not live" -q
+```
+
+To opt into the sole live check, which uses the approved `[2026] SGCA 39`
+eLitigation PDF and runs it through local indexing and `/api/v1/audit`:
+
+```bash
+RUN_LIVE_TESTS=1 \
+pytest -m live -q
+```
+
+The live test must return a successful audit with native-PDF page evidence; it
+should not be used to bypass access controls, CAPTCHA, or rate limits.
+
+## Increment 6: Rule-support retrieval improvements
+
+### Visible changes
+
+- Evidence cards now rank paragraphs using query coverage, term precision,
+  phrase continuity, and operative holding language rather than raw term overlap.
+- Confidence is calibrated separately for supported, uncertain, and unsupported
+  retrieval outcomes.
+- Fully supported deterministic retrieval can clear `needs_human_review` only
+  for the retrieval signal; mismatches, weak evidence, and unresolved claims
+  continue to require review.
 - Claims with no supporting passage remain `UNSUPPORTED` or `UNCERTAIN`, rather than being presented as legal conclusions.
 
 ### Manual verification
 
-Test one supported claim, one unsupported claim, and one ambiguous claim. Confirm that the paragraph text and paragraph numbers correspond to the local judgment.
+Test one supported claim, one unsupported claim, and one ambiguous claim. Confirm that the paragraph text and paragraph numbers correspond to the local judgment, that the supported claim ranks the operative holding first, and that weak or absent evidence keeps `needs_human_review` true.
 
-## Increment 6: PDF ingestion
+## Increment 7: PDF ingestion
 
 ### Visible changes
 
-- The corpus can ingest permitted PDF judgments.
-- Evidence includes page references in addition to paragraph references.
-- OCR-derived text is marked separately when applicable.
+- The corpus can ingest permitted text-based PDF judgments when `pypdf` is
+  installed.
+- Evidence includes `page` references in addition to paragraph references.
+- Each evidence item includes `text_source`: `plain_text`, `native_pdf`, or
+  explicitly declared `ocr`.
+- PDFs with no extractable text fail clearly; the indexer does not silently
+  treat a scanned image as an empty judgment.
 
 ### Manual verification
 
-Index a permitted text-based PDF and an OCR PDF. Compare extracted paragraphs, page references, and error messages against the source documents.
+Add a permitted text-based PDF to a local corpus and reference it from
+`cases.jsonl`. For an OCR-processed PDF, add `"text_source": "ocr"` to the
+record. Rebuild the index and audit a claim. Confirm that the evidence contains
+the expected paragraph and page, and that OCR evidence is labelled separately.
+Try a scanned PDF with no text layer and confirm that the build reports a clear
+error without replacing the existing index.
+
+## Increment 8: Persisted live-source maintenance
+
+The live verifier now has a manual batch workflow. It is separate from both
+the deterministic audit API and the ephemeral `/api/v1/sources/verify`
+endpoint.
+
+### Visible changes
+
+- `scripts/verify_live_sources.py` reads the curated case manifest and checks
+  only records whose `retrieved_at` is older than seven days by default.
+- A successful, mismatched, or unavailable attempted check updates only
+  `source_verified` and `retrieved_at` in the current `case_provenance` row.
+- Untrusted/search URLs are skipped without overwriting prior verification
+  state; fetched HTML is not retained.
+- `--force`, `--max-age-days`, and `--delay` make the maintenance policy
+  explicit for demonstrations and scheduled runs.
+
+### Manual verification
+
+Run the command against a prepared corpus only after confirming that access is
+permitted:
+
+```bash
+python scripts/verify_live_sources.py --force --delay 1
+```
+
+Inspect the JSON summary and then query `case_provenance` for the current
+snapshot. The audit API should produce the same result before and after this
+command; only the optional provenance state changes.
+
+## Increment 9: Judiciary and Singapore Law Watch adapters
+
+Live metadata extraction now supports common semantic/meta-tag layouts used by
+Singapore Courts and Singapore Law Watch in addition to eLitigation's
+judgment-page classes. URL classification remains deterministic and the live
+fetch remains explicit.
+
+### Visible changes
+
+- Direct Judiciary pages retain `OFFICIAL_JUDICIARY_SOURCE` provenance.
+- Direct Singapore Law Watch articles retain `TRUSTED_PUBLISHER_SOURCE`
+  provenance.
+- Their title, citation, date, court code, and common court labels can be
+  compared against corpus metadata.
+- Search/results pages are still rejected before a fetch.
+
+### Manual verification
+
+Use mocked tests for normal development:
+
+```bash
+pytest -m "not live" -q
+```
+
+For a permitted direct page, enable the explicit endpoint and send its
+expected metadata to `/api/v1/sources/verify`. A matching page should return
+`LIVE_VERIFIED`; a page with one differing field should return
+`LIVE_METADATA_MISMATCH` with per-field booleans. The extension remains
+unchanged on this branch.
 
 ## Regression checks for every increment
 

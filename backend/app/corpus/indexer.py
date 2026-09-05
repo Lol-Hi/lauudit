@@ -7,7 +7,7 @@ import re
 import uuid
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from backend.app.corpus.database import connect, initialize_schema
 from backend.app.normalization.case_names import normalize_case_name
@@ -27,6 +27,7 @@ REQUIRED = {
 }
 DEFAULT_CORPUS_NOTES = "Locally prepared permitted judgments; not a comprehensive Singapore case database."
 ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+TEXT_SOURCES = {"plain_text", "native_pdf", "ocr"}
 
 
 def _valid_iso_date(value: object) -> bool:
@@ -57,12 +58,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _paragraphs(text: str) -> list[tuple[int, str]]:
+def _paragraphs(text: str, starting_number: int = 1) -> list[tuple[int, str]]:
     blocks = [block.strip() for block in text.replace("\r\n", "\n").split("\n\n") if block.strip()]
     output = []
     for index, block in enumerate(blocks, 1):
         first_line = block.splitlines()[0]
-        number = index
+        number = starting_number + index - 1
         if first_line.startswith("[") and "]" in first_line:
             try:
                 number = int(first_line[1 : first_line.index("]")])
@@ -70,6 +71,45 @@ def _paragraphs(text: str) -> list[tuple[int, str]]:
                 pass
         output.append((number, block))
     return output
+
+
+def _pdf_paragraphs(document: Path, text_source: str) -> list[tuple[int, str, int, str]]:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise ValueError("PDF indexing requires the optional 'pypdf' dependency") from exc
+
+    try:
+        reader = PdfReader(str(document), strict=False)
+        extracted: list[tuple[int, str, int, str]] = []
+        next_number = 1
+        for page_number, page in enumerate(reader.pages, 1):
+            page_text = (page.extract_text() or "").strip()
+            if not page_text:
+                continue
+            paragraphs = _paragraphs(page_text, next_number)
+            for paragraph_number, paragraph_text in paragraphs:
+                extracted.append((paragraph_number, paragraph_text, page_number, text_source))
+            next_number = max(number for number, _ in paragraphs) + 1
+    except Exception as exc:
+        raise ValueError(f"could not extract text from PDF {document}: {exc}") from exc
+
+    if not extracted:
+        description = "OCR-marked" if text_source == "ocr" else "text-based"
+        raise ValueError(
+            f"PDF {document} has no extractable text; provide an {description} PDF with a text layer"
+            " or prepare approved OCR text before indexing"
+        )
+    return extracted
+
+
+def _document_paragraphs(document: Path, text_source: str) -> list[tuple[int, str, Optional[int], str]]:
+    if document.suffix.lower() == ".pdf":
+        return _pdf_paragraphs(document, text_source)
+    return [
+        (paragraph_number, paragraph_text, None, text_source)
+        for paragraph_number, paragraph_text in _paragraphs(document.read_text(encoding="utf-8"))
+    ]
 
 
 def _resolve_document(cases_path: Path, value: str) -> Path:
@@ -179,7 +219,19 @@ def build_index(
             if not document.exists():
                 errors.append(f"line {line_number}: document not found {record['document_path']}")
                 continue
+            is_pdf = document.suffix.lower() == ".pdf"
+            text_source = record.get("text_source") or ("native_pdf" if is_pdf else "plain_text")
+            if text_source not in TEXT_SOURCES:
+                errors.append(f"line {line_number}: text_source must be one of {sorted(TEXT_SOURCES)}")
+                continue
+            if is_pdf and text_source == "plain_text":
+                errors.append(f"line {line_number}: PDF documents must use text_source 'native_pdf' or 'ocr'")
+                continue
+            if not is_pdf and text_source != "plain_text":
+                errors.append(f"line {line_number}: non-PDF documents must use text_source 'plain_text'")
+                continue
             record["_document"] = document
+            record["_text_source"] = text_source
             record["_document_sha256"] = _sha256(document)
             record["_document_size_bytes"] = document.stat().st_size
             records.append(record)
@@ -239,8 +291,13 @@ def build_index(
                     "INSERT INTO case_citations VALUES (?, ?, ?, ?)",
                     (record["case_id"], citation, normalize_citation(citation), "neutral" if citation == neutral else "reported"),
                 )
-            for paragraph_number, paragraph_text in _paragraphs(record["_document"].read_text(encoding="utf-8")):
-                connection.execute("INSERT INTO paragraphs VALUES (?, ?, ?)", (record["case_id"], paragraph_number, paragraph_text))
+            for paragraph_number, paragraph_text, page_number, text_source in _document_paragraphs(
+                record["_document"], record["_text_source"]
+            ):
+                connection.execute(
+                    "INSERT INTO paragraphs (case_id, paragraph_number, text, page_number, text_source) VALUES (?, ?, ?, ?, ?)",
+                    (record["case_id"], paragraph_number, paragraph_text, page_number, text_source),
+                )
                 connection.execute("INSERT INTO paragraph_fts VALUES (?, ?, ?)", (record["case_id"], paragraph_number, paragraph_text))
 
         connection.execute(
