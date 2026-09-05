@@ -25,3 +25,17 @@ def test_audit_api(indexed_db):
     assert body["citations"][0]["link_status"] == "LINK_CONFIRMS_CASE"
     assert body["citations"][0]["source_status"] == "KNOWN_CORPUS_SOURCE"
     assert body["citations"][0]["source_url_normalized"] == "https://official.test/case-1"
+
+
+def test_audit_api_exposes_parallel_and_footnote_metadata(indexed_db):
+    client = TestClient(app)
+    response = client.post("/api/v1/audit", json={
+        "response_text": "1. Lim v Tan [2023] SGCA 12; [2023] 2 SLR 100 held that contractual agreement is assessed objectively.",
+        "links": [],
+    })
+
+    assert response.status_code == 200
+    citation = response.json()["citations"][0]
+    assert citation["parallel_citations"] == ["[2023] SGCA 12", "[2023] 2 SLR 100"]
+    assert citation["context_type"] == "footnote"
+    assert citation["footnote_number"] == "1"

@@ -8,7 +8,7 @@ from backend.app.extractors.citations import extract_citations
 from backend.app.extractors.links import link_for_citation
 from backend.app.scoring import citation_status
 from backend.app.schemas import AuditRequest, AuditResponse, AuditSummary, CitationAudit, Evidence
-from backend.app.verifiers.existence import verify_existence
+from backend.app.verifiers.existence import verify_existence, verify_parallel_existence
 from backend.app.verifiers.link_match import verify_link
 from backend.app.verifiers.name_match import verify_name
 from backend.app.verifiers.rule_support import evaluate_rule_support, unable_to_evaluate
@@ -26,7 +26,11 @@ def run_audit(request: AuditRequest) -> AuditResponse:
     for citation in extracted:
         href = link_for_citation(citation, request.links)
         url_result = classify_url(href, known_source_urls)
-        existence = verify_existence(connection, citation.provided_name, citation.provided_citation)
+        existence = (
+            verify_parallel_existence(connection, citation.provided_name, citation.parallel_citations)
+            if citation.parallel_citations
+            else verify_existence(connection, citation.provided_name, citation.provided_citation)
+        )
         case = existence.case
         name_matches, name_status = verify_name(citation.provided_name, case)
         link_status = verify_link(href, case, known_cases)
@@ -43,6 +47,9 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             raw_text=citation.raw_text,
             provided_name=citation.provided_name,
             provided_citation=citation.provided_citation,
+            parallel_citations=citation.parallel_citations,
+            context_type=citation.context_type,
+            footnote_number=citation.footnote_number,
             surrounding_sentence=citation.surrounding_sentence,
             canonical_name=case["canonical_name"] if case else None,
             case_id=case["case_id"] if case else None,

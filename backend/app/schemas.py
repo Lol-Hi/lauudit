@@ -57,6 +57,9 @@ class CitationAudit(BaseModel):
     raw_text: str
     provided_name: Optional[str] = None
     provided_citation: Optional[str] = None
+    parallel_citations: list[str] = Field(default_factory=list)
+    context_type: str = "body"
+    footnote_number: Optional[str] = None
     surrounding_sentence: str
     canonical_name: Optional[str] = None
     case_id: Optional[str] = None

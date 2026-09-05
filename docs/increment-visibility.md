@@ -49,6 +49,20 @@ This does not mean that the URL is live or that it contains the cited case. It o
 
 Singapore Law Watch Judgments links are classified as `TRUSTED_PUBLISHER_SOURCE`; its `/Judgments` and `/Results` pages are classified as `TRUSTED_PUBLISHER_SEARCH_PAGE`. These labels identify a publisher/discovery source only and do not replace local corpus confirmation.
 
+## Next increment: citation extraction context
+
+### Visible changes
+
+- Parallel citations separated by commas, semicolons, or `and` are grouped into one audit citation.
+- Case names can retain party suffixes such as `and another` and support more corporate-name tokens such as `(S) Pte Ltd`.
+- Numbered footnote citations expose `context_type: "footnote"` and `footnote_number`.
+- The audit JSON includes `parallel_citations`, `context_type`, and `footnote_number` on each citation.
+- Hyperlink behavior is unchanged in this increment; split-link hardening remains Stage B.
+
+### Manual verification
+
+Submit text containing a primary and reported parallel citation, then confirm one citation result contains both values in `parallel_citations`. Submit a numbered footnote citation and confirm its footnote metadata. No network request is made.
+
 ## Increment 2: Frontend source-status display
 
 ### Visible changes

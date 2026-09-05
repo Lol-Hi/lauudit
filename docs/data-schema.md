@@ -8,6 +8,8 @@ Documents are plain text. Blank-line-separated blocks are paragraphs. A leading 
 
 Audit citation results also include `source_status` and `source_url_normalized`. These are offline URL provenance signals. `OFFICIAL_ELITIGATION_SOURCE` and `OFFICIAL_JUDICIARY_SOURCE` identify an official domain; `TRUSTED_PUBLISHER_SOURCE` identifies a Singapore Law Watch publisher URL. None of these statuses confirms that the page is live or that it contains the cited case. `KNOWN_CORPUS_SOURCE` means the normalized URL matches a local corpus record. Search-page statuses are discovery signals only.
 
+Citation extraction also exposes `parallel_citations` for grouped parallel references, `context_type` (`body` or `footnote`), and an optional `footnote_number`. `provided_citation` remains the primary citation for backward compatibility.
+
 ## Corpus provenance
 
 Every successful index build records one row in `corpus_snapshots` and one row per case in `case_provenance`:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Tuple
 
 
@@ -13,12 +13,13 @@ REPORTED_CITATION_RE = re.compile(
     r"\[(?P<year>19\d{2}|20\d{2})\]\s*(?P<volume>\d+)\s+SLR\s+(?P<number>\d+)",
     re.I,
 )
+PARTY_WORD = r"(?:[A-Z(][A-Za-z0-9'’().&/-]*|&|and|another|others|ors|of|the)"
 CASE_NAME_RE = re.compile(
-    r"\b(?P<left>(?:Public Prosecutor|PP|Attorney-General|[A-Z][A-Za-z'’_-]+(?:\s+[A-Z][A-Za-z'’_-]+){0,5}))\s+"
-    r"(?P<separator>v\.?|versus|&)\s+"
-    r"(?P<right>(?:Public Prosecutor|PP|[A-Z][A-Za-z'’_-]+(?:\s+[A-Z][A-Za-z'’_-]+){0,6}))",
-    re.I,
+    rf"\b(?P<left>(?:Public Prosecutor|PP|Attorney-General|{PARTY_WORD}(?:\s+{PARTY_WORD}){{0,7}}))\s+"
+    r"(?P<separator>(?i:v\.?|versus|&))\s+"
+    rf"(?P<right>(?:Public Prosecutor|PP|{PARTY_WORD}(?:\s+{PARTY_WORD}){{0,8}}))",
 )
+FOOTNOTE_MARKER_RE = re.compile(r"^\s*(?:\[\^(?P<bracket>\d+)\]|\^(?P<caret>\d+)|(?P<plain>\d+)[.)])\s+")
 
 
 @dataclass
@@ -31,6 +32,9 @@ class ExtractedCitation:
     start: int
     end: int
     href: Optional[str] = None
+    parallel_citations: list[str] = field(default_factory=list)
+    context_type: str = "body"
+    footnote_number: Optional[str] = None
 
 
 def _sentence(text: str, start: int, end: int) -> str:
@@ -60,25 +64,66 @@ def _best_name(sentence: str, citation_offset: Optional[int] = None) -> Tuple[Op
     return raw, match.start(), match.end()
 
 
-def _make_occurrence(text: str, match: re.Match[str], index: int) -> ExtractedCitation:
-    sentence = _sentence(text, match.start(), match.end())
-    citation = match.group(0)
-    name, _, _ = _best_name(sentence, sentence.find(citation))
+def _footnote_metadata(text: str, start: int) -> Tuple[str, Optional[str]]:
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", start)
+    line = text[line_start:] if line_end < 0 else text[line_start:line_end]
+    marker = FOOTNOTE_MARKER_RE.match(line)
+    if not marker:
+        return "body", None
+    number = marker.group("bracket") or marker.group("caret") or marker.group("plain")
+    return "footnote", number
+
+
+def _make_occurrence(text: str, matches: list[re.Match[str]], index: int) -> ExtractedCitation:
+    first_match = matches[0]
+    last_match = matches[-1]
+    sentence = _sentence(text, first_match.start(), last_match.end())
+    citations = [match.group(0) for match in matches]
+    first_citation = citations[0]
+    name, _, _ = _best_name(sentence, sentence.find(first_citation))
+    context_type, footnote_number = _footnote_metadata(text, first_match.start())
+    citation_text = text[first_match.start() : last_match.end()]
     return ExtractedCitation(
         occurrence_id=f"citation-{index:03d}",
-        raw_text=(f"{name} {citation}" if name and sentence.find(name) <= sentence.find(citation) else citation),
+        raw_text=(f"{name} {citation_text}" if name and sentence.find(name) <= sentence.find(first_citation) else citation_text),
         provided_name=name,
-        provided_citation=citation,
+        provided_citation=first_citation,
         surrounding_sentence=sentence,
-        start=match.start(),
-        end=match.end(),
+        start=first_match.start(),
+        end=last_match.end(),
+        parallel_citations=citations if len(citations) > 1 else [],
+        context_type=context_type,
+        footnote_number=footnote_number,
     )
+
+
+def _is_parallel_gap(value: str) -> bool:
+    return bool(re.fullmatch(r"\s*(?:[,;]|and)\s*", value, flags=re.I))
+
+
+def _group_parallel_matches(text: str, matches: list[re.Match[str]]) -> list[list[re.Match[str]]]:
+    groups: list[list[re.Match[str]]] = []
+    for match in matches:
+        if groups:
+            previous = groups[-1][-1]
+            gap = text[previous.end() : match.start()]
+            if _same_sentence(text, previous.end(), match.start()) and _is_parallel_gap(gap):
+                groups[-1].append(match)
+                continue
+        groups.append([match])
+    return groups
+
+
+def _same_sentence(text: str, first_end: int, second_start: int) -> bool:
+    return not re.search(r"[.!?]", text[first_end:second_start])
 
 
 def extract_citations(text: str) -> list[ExtractedCitation]:
     matches = list(NEUTRAL_CITATION_RE.finditer(text)) + list(REPORTED_CITATION_RE.finditer(text))
     matches.sort(key=lambda m: m.start())
-    results = [_make_occurrence(text, match, i + 1) for i, match in enumerate(matches)]
+    groups = _group_parallel_matches(text, matches)
+    results = [_make_occurrence(text, group, i + 1) for i, group in enumerate(groups)]
     covered_spans = [(item.start, item.end) for item in results]
 
     # Name-only citations are included when they are not part of a citation occurrence.
@@ -98,6 +143,8 @@ def extract_citations(text: str) -> list[ExtractedCitation]:
                 surrounding_sentence=sentence,
                 start=match.start(),
                 end=match.end(),
+                context_type=_footnote_metadata(text, match.start())[0],
+                footnote_number=_footnote_metadata(text, match.start())[1],
             )
         )
         next_index += 1
