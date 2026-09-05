@@ -78,9 +78,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     try {
       const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
       if (!tab || !tab.id) throw new Error("No active tab is available.");
+      notifyPanel({type: "AUDIT_PROGRESS", phase: "collecting"});
       const payload = await getPagePayload(tab.id);
+      notifyPanel({type: "AUDIT_PROGRESS", phase: "sending"});
       const response = await fetch(BACKEND_URL, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
       if (!response.ok) throw new Error(`Backend returned HTTP ${response.status}. Is it running?`);
+      notifyPanel({type: "AUDIT_PROGRESS", phase: "receiving"});
       const result = await response.json();
       await chrome.tabs.sendMessage(tab.id, {type: "HIGHLIGHT_RESULTS", results: result.citations}).catch(() => {});
       sendResponse({ok: true, result});
@@ -90,4 +93,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   })();
   return true;
 });
-

@@ -18,6 +18,7 @@ button:disabled { cursor: wait; opacity: .65; }
 .audit-meta { display: flex; flex-direction: column; gap: 2px; color: #64748b; font-size: 11px; margin-bottom: 10px; }
 .copy-button { color: #1d4ed8; background: #dbeafe; border: 0; border-radius: 4px; padding: 2px 6px; font-size: 10px; cursor: pointer; }
 .unsafe-url { color: #991b1b; overflow-wrap: anywhere; }
+.link-explanation { color: #854d0e; }
 .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 12px; }
 .metric { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; background: white; }
 .metric-value { display: block; font-size: 18px; font-weight: 700; }

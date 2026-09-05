@@ -9,6 +9,7 @@ const dynamicSelectionState = document.getElementById("dynamic-selection-state")
 const dynamicSelectionResults = document.getElementById("dynamic-selection-results");
 const dynamicSelectionSummary = document.getElementById("dynamic-selection-summary");
 const dynamicSelectionList = document.getElementById("dynamic-selection-list");
+const auditButton = document.getElementById("audit");
 let dynamicSelectionEnabled = false;
 let dynamicAudits = [];
 
@@ -73,11 +74,18 @@ function safeHttpUrl(value) {
 }
 
 function sourceLink(item) {
-  const value = item.source_url || "";
-  const safeUrl = safeHttpUrl(value);
-  if (!value) return "—";
-  if (!safeUrl) return `<span class="unsafe-url">${esc(value)} (not a safe HTTP(S) link)</span>`;
-  return `<a href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(value)}</a>`;
+  const displayValue = item.source_url || item.source_url_normalized || "";
+  const safeUrl = safeHttpUrl(item.source_url_normalized || item.source_url);
+  if (!displayValue) return "—";
+  if (!safeUrl) return `<span class="unsafe-url">${esc(displayValue)} (not a safe HTTP(S) link)</span>`;
+  return `<a href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(displayValue)}</a>`;
+}
+
+function linkExplanation(status) {
+  if (status === "LINK_SPLIT_OR_AMBIGUOUS") {
+    return "The citation was split across links that point to different URLs. Lauudit did not choose one automatically.";
+  }
+  return "";
 }
 
 function renderSummary(result) {
@@ -138,6 +146,7 @@ function render(result) {
       : "Body text";
     const evidence = Array.isArray(item.evidence) ? item.evidence : [];
     const linkLabel = LINK_LABELS[item.link_status] || displayLabel(item.link_status);
+    const explanation = linkExplanation(item.link_status);
     return `<article class="card ${citationTone(item)}">
       <h2>${esc(item.provided_name || item.raw_text || "Citation")}</h2>
       <p>${badge(item.status)}</p>
@@ -146,6 +155,7 @@ function render(result) {
       <p>Context: ${context}</p>
       <p>Canonical: ${esc(item.canonical_name || "—")} ${item.case_id ? `(${esc(item.case_id)})` : ""}</p>
       <p>Source: ${badge(item.source_status, sourceLabel(item.source_status))}<br>${sourceLink(item)}<br>Link: ${badge(item.link_status, linkLabel)}</p>
+      ${explanation ? `<p class="link-explanation">${esc(explanation)}</p>` : ""}
       <p>Existence: ${badge(item.existence_status)}<br>Name: ${badge(item.name_status)}<br>Rule: ${badge(item.rule_support)}${item.rule_confidence != null ? ` (${esc(item.rule_confidence)})` : ""}</p>
       ${item.explanation ? `<p>${esc(item.explanation)}</p>` : ""}
       ${item.needs_human_review ? '<p class="review-required">Human review required</p>' : ""}
@@ -194,6 +204,14 @@ dynamicSelectionToggle.addEventListener("click", () => {
 });
 
 chrome.runtime.onMessage.addListener((message) => {
+  if (message.type === "AUDIT_PROGRESS") {
+    const messages = {
+      collecting: "Collecting the active page…",
+      sending: "Sending the visible response to the local backend…",
+      receiving: "Receiving the audit result…",
+    };
+    state.textContent = messages[message.phase] || "Processing audit…";
+  }
   if (message.type === "DYNAMIC_SELECTION_AUDIT_STARTED") {
     updateDynamicAudit(message.selection_id, {result: null, error: null});
   }
@@ -207,14 +225,17 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-document.getElementById("audit").addEventListener("click", () => {
-  state.textContent = "Auditing…";
+auditButton.addEventListener("click", () => {
+  auditButton.disabled = true;
+  state.textContent = "Collecting the active page…";
   results.innerHTML = "";
   chrome.runtime.sendMessage({type: "AUDIT_ACTIVE_TAB"}, (message) => {
     if (chrome.runtime.lastError || !message || !message.ok) {
+      auditButton.disabled = false;
       state.textContent = "Backend unavailable. Start Lauudit locally and try again.";
       return;
     }
+    auditButton.disabled = false;
     state.textContent = `Completed ${message.result.audit_id}`;
     render(message.result);
   });
