@@ -1,9 +1,8 @@
-"""Explicit, read-only verification of approved online legal sources.
+"""Read-only verification of approved online legal sources.
 
-This module is deliberately isolated from the audit pipeline. It is intended
-to be called only by a future explicit online-verification endpoint or a
-manual maintenance command; importing the deterministic audit path must never
-cause a network request.
+The MVP audit pipeline may call this verifier automatically for direct URLs,
+and the explicit endpoint and maintenance command may also call it. Network
+access remains bounded by the allowlist and the verifier returns metadata only.
 """
 
 from __future__ import annotations

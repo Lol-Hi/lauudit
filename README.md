@@ -61,12 +61,13 @@ JSON
 
 `RULE_EVALUATOR=heuristic` is the default and is fully offline. `local_model` is reserved for a future Ollama/local inference adapter; the current implementation intentionally returns `UNABLE_TO_EVALUATE` for that mode instead of contacting a service.
 
-Live source verification is a separate, explicit operation. It is disabled by
-default and is enabled only for a deliberate maintenance or demonstration run
-with `ENABLE_LIVE_VERIFICATION=true`. `POST /api/v1/sources/verify` validates
-the source against the live-fetch allowlist, follows redirects, extracts page
-metadata, and returns an ephemeral result. It does not run during
-`POST /api/v1/audit`, write to the corpus, or save the fetched document.
+Live source verification is enabled by default for the MVP. After
+`POST /api/v1/audit`, direct source URLs are checked automatically when they
+are on the server-side allowlist; search pages, malformed URLs, and unknown
+hosts are skipped without a network request. The result is metadata-only and
+ephemeral, and is kept separate from the offline `source_status`. Set
+`ENABLE_LIVE_VERIFICATION=false` for an offline-only deployment. The explicit
+`POST /api/v1/sources/verify` endpoint remains available for retries.
 
 ## Corpus maintenance
 
@@ -78,7 +79,7 @@ python scripts/build_index.py
 
 The indexer validates required fields, document paths, duplicate case IDs, duplicate citations, duplicate canonical names/aliases, ISO decision dates, source URLs, and provenance timestamps. It exits non-zero when malformed records are found. Each successful build creates a content-derived corpus snapshot and records SHA-256 hashes for the metadata file and every indexed document. Rebuilding writes a temporary SQLite database and atomically replaces the active index only after validation and indexing succeed. A Git-ignored `data/corpus/build_report.json` receipt is also written for the successful build.
 
-The build is intentionally offline: it never downloads `source_url` or any document. Permitted PDFs may be indexed directly from `data/corpus/documents/` or the ignored `data/corpus/private_documents/` directory; `pypdf` extracts their text locally and the original PDF is not copied into SQLite. Both `source_pdfs/` and `private_documents/` are excluded from Git by default, as is the generated SQLite index. Do not commit real judgments unless the team has verified its redistribution rights.
+The corpus build is intentionally offline: it never downloads `source_url` or any document. Runtime audit verification may make one bounded, read-only metadata request per eligible allowlisted direct URL; it never saves the fetched document. Permitted PDFs may be indexed directly from `data/corpus/documents/` or the ignored `data/corpus/private_documents/` directory; `pypdf` extracts their text locally and the original PDF is not copied into SQLite. Both `source_pdfs/` and `private_documents/` are excluded from Git by default, as is the generated SQLite index. Do not commit real judgments unless the team has verified its redistribution rights.
 
 To explicitly re-check stale allowlisted source URLs and update only the
 current snapshot's `case_provenance` rows, run the maintenance verifier:
@@ -114,7 +115,8 @@ backend test:
 pytest -m "not live" -q
 ```
 
-The default suite never contacts the internet. There is exactly one opt-in
+The default test suite does not contact the internet: automatic verification is
+mocked or exercised with untrusted test hosts. There is exactly one opt-in
 eLitigation end-to-end test; it downloads the public `[2026] SGCA 39` PDF into
 pytest's temporary directory, indexes it, and sends a simulated extension
 request through `/api/v1/audit`. Run it only after confirming access is permitted:

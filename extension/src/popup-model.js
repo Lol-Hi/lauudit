@@ -119,14 +119,28 @@ function liveVerificationLabel(result) {
   return result?.reason || "Online verification unavailable";
 }
 
+function liveVerificationSummary(result) {
+  if (!result) return "";
+  const metadata = Object.entries(result.metadata_match || {})
+    .map(([key, value]) => `${esc(key)}: ${value === true ? "match" : value === false ? "mismatch" : "unknown"}`)
+    .join(" · ");
+  const finalUrl = safeHttpUrl(result.final_url);
+  const finalUrlMarkup = finalUrl
+    ? `<a href="${esc(finalUrl)}" target="_blank" rel="noopener noreferrer">${esc(result.final_url)}</a>`
+    : result.final_url ? esc(result.final_url) : "—";
+  return `<p class="live-result-label">${esc(liveVerificationLabel(result))}</p>
+    ${metadata ? `<p>Metadata: ${metadata}</p>` : ""}
+    <p>Final URL: ${finalUrlMarkup}<br>Retrieved: ${esc(result.retrieved_at || "—")}</p>`;
+}
+
 function liveVerificationMarkup(item) {
   if (!canVerifyOnline(item)) {
     return '<p class="live-verification-disabled">Online verification unavailable for this source.</p>';
   }
   return `<div class="live-verification" data-occurrence-id="${esc(item.occurrence_id)}">
-    <button class="verify-online secondary" type="button">Verify online</button>
+    <button class="verify-online secondary" type="button">${item.live_verification ? "Verify again" : "Verify online"}</button>
     <p class="live-disclosure">One read-only request to an allowlisted public source. This does not prove the legal proposition.</p>
-    <div class="live-verification-result" aria-live="polite"></div>
+    <div class="live-verification-result" aria-live="polite">${liveVerificationSummary(item.live_verification)}</div>
   </div>`;
 }
 
@@ -166,6 +180,7 @@ export {
   liveVerificationLabel,
   liveVerificationMarkup,
   liveVerificationPayload,
+  liveVerificationSummary,
   renderCitationCard,
   safeHttpUrl,
   sourceLabel,

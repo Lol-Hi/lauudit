@@ -96,6 +96,7 @@ class CitationAudit(BaseModel):
     source_url: Optional[str] = None
     source_status: Optional[SourceStatus] = None
     source_url_normalized: Optional[str] = None
+    live_verification: Optional[LiveVerifyResponse] = None
     case_exists: bool = False
     existence_status: ExistenceStatus
     name_matches: Optional[bool] = None

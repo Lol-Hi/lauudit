@@ -1,14 +1,15 @@
 # Phase 3 — Extension online-verification handoff
 
-Phase 3 is intentionally not implemented on `branch-elit`. This document
-records the frontend changes to make later, after the backend endpoint has been
-manually verified and the team is ready to change the extension.
+The MVP implementation is now active on the integration branch. This document
+records the frontend contract for automatic online verification and the
+explicit retry action.
 
 ## Scope and invariants
 
 - Keep the existing offline audit request and response rendering unchanged.
-- Add an explicit user action for online verification; never call the live
-  endpoint automatically after every audit.
+- Automatically verify eligible direct source URLs after each audit when
+  `ENABLE_LIVE_VERIFICATION=true` (the MVP default), while retaining an
+  explicit retry action on each citation card.
 - Do not download, cache, or persist the judgment in the extension. The
   backend endpoint returns metadata only and keeps the response ephemeral.
 - Show live verification as a separate result from the offline `source_status`.
@@ -18,8 +19,9 @@ manually verified and the team is ready to change the extension.
 
 ## Planned `extension/src/background.js` changes
 
-Add a distinct message type and endpoint constant. The existing `AUDIT_ACTIVE_TAB`
-message should remain unchanged.
+The extension retains a distinct message type and endpoint constant for manual
+retries. The existing `AUDIT_ACTIVE_TAB` message remains unchanged; automatic
+verification is performed by the backend as part of the audit response.
 
 ```js
 const LIVE_VERIFY_URL = `${BACKEND_URL}/api/v1/sources/verify`;
@@ -56,7 +58,9 @@ Before sending, omit empty optional fields and disable the action when
 ## Planned popup changes
 
 1. Retain the latest `AuditResponse` in memory as `lastAuditResult`.
-2. Add a `Verify online` button to each citation card only when the citation
+2. Render an automatic live-verification result when the citation includes
+   `live_verification`.
+3. Add a `Verify online` or `Verify again` button to each citation card only when the citation
    has a direct normalized source URL.
 3. On click, send `VERIFY_SOURCE_ONLINE` for that card and render a pending,
    success, mismatch, unavailable, or disabled state in the same card.
@@ -79,8 +83,8 @@ function liveVerificationLabel(result) {
 
 ## Acceptance checks before implementation
 
-- The audit endpoint still makes no network request when a citation contains an
-  official eLitigation URL.
+- The audit endpoint automatically checks an eligible official direct URL when
+  live verification is enabled, and remains offline when the setting is false.
 - No extension code writes source HTML, PDF bytes, or fetched metadata to
   `chrome.storage`.
 - A direct judgment URL can be verified with one deliberate click.

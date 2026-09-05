@@ -4,6 +4,7 @@ import httpx
 from fastapi.testclient import TestClient
 
 from backend.app.api import routes
+from backend.app import pipeline
 from backend.app.config import settings
 from backend.app.main import app
 from backend.app.verifiers.live_source import verify_live_source
@@ -170,17 +171,18 @@ def test_phase3_payload_contract_is_accepted_by_phase4_endpoint(monkeypatch):
     }
 
 
-def test_audit_path_does_not_invoke_live_verifier(monkeypatch, indexed_db):
+def test_audit_path_automatically_verifies_allowlisted_direct_sources(monkeypatch, indexed_db):
     monkeypatch.setattr(
         routes,
         "settings",
         replace(settings, enable_live_verification=True),
     )
-
-    def fail(*args, **kwargs):
-        raise AssertionError("the deterministic audit path must not invoke live verification")
-
-    monkeypatch.setattr(routes, "verify_live_source", fail)
+    monkeypatch.setattr(
+        pipeline,
+        "settings",
+        replace(pipeline.settings, enable_live_verification=True),
+    )
+    monkeypatch.setattr(pipeline, "verify_live_source", _mocked_verifier)
     response = TestClient(app).post(
         "/api/v1/audit",
         json={
@@ -194,4 +196,7 @@ def test_audit_path_does_not_invoke_live_verifier(monkeypatch, indexed_db):
     )
 
     assert response.status_code == 200
-    assert response.json()["citations"][0]["source_status"] == "OFFICIAL_ELITIGATION_SOURCE"
+    citation = response.json()["citations"][0]
+    assert citation["source_status"] == "OFFICIAL_ELITIGATION_SOURCE"
+    assert citation["live_verification"]["status"] == "LIVE_VERIFIED"
+    assert citation["live_verification"]["attempted"] is True

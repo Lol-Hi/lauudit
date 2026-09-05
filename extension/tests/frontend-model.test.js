@@ -4,6 +4,7 @@ import {
   canVerifyOnline,
   liveVerificationLabel,
   liveVerificationPayload,
+  liveVerificationSummary,
   renderCitationCard,
   safeHttpUrl,
 } from "../src/popup-model.js";
@@ -81,5 +82,19 @@ describe("popup model", () => {
     expect(liveVerificationLabel({status: "LIVE_VERIFIED"})).toContain("Confirmed live judgment");
     expect(liveVerificationLabel({status: "LIVE_METADATA_MISMATCH"})).toContain("metadata mismatch");
     expect(liveVerificationLabel({status: "LIVE_VERIFICATION_DISABLED"})).toContain("disabled");
+  });
+
+  it("renders an automatic live-verification result separately from offline provenance", () => {
+    const dom = new JSDOM(`<main>${renderCitationCard({...citation, live_verification: {
+      status: "LIVE_METADATA_MISMATCH",
+      final_url: "https://www.elitigation.sg/gdviewer/s/2023_SGCA_12",
+      retrieved_at: "2026-09-06T00:00:00Z",
+      metadata_match: {name: false, citation: true},
+    }})}</main>`);
+    const text = dom.window.document.body.textContent;
+
+    expect(text).toContain("Live page, metadata mismatch");
+    expect(text).toContain("Verify again");
+    expect(liveVerificationSummary({status: "LIVE_VERIFIED"})).toContain("Confirmed live judgment");
   });
 });

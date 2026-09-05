@@ -7,12 +7,13 @@ from backend.app.corpus.database import connect, current_corpus, initialize_sche
 from backend.app.extractors.citations import extract_citations
 from backend.app.extractors.links import resolve_links
 from backend.app.scoring import citation_status
-from backend.app.schemas import AuditRequest, AuditResponse, AuditSummary, CitationAudit, Evidence
+from backend.app.schemas import AuditRequest, AuditResponse, AuditSummary, CitationAudit, Evidence, LiveVerifyResponse
 from backend.app.verifiers.existence import verify_existence, verify_parallel_existence
 from backend.app.verifiers.link_match import verify_link
 from backend.app.verifiers.name_match import verify_name
 from backend.app.verifiers.rule_support import evaluate_rule_support, unable_to_evaluate
 from backend.app.verifiers.url_classifier import classify_url
+from backend.app.verifiers.live_source import verify_live_source
 
 
 def run_audit(request: AuditRequest) -> AuditResponse:
@@ -47,6 +48,28 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             support = unable_to_evaluate("No unique corpus case was resolved, so rule support cannot be evaluated.")
         status = citation_status(existence.status, name_matches, link_status, support.classification)
         needs_review = status != "VERIFIED_EXISTS" or support.needs_human_review
+        live_verification = None
+        if settings.enable_live_verification and url_result.normalized_url and url_result.status not in {
+            "OFFICIAL_SOURCE_SEARCH_PAGE",
+            "TRUSTED_PUBLISHER_SEARCH_PAGE",
+            "MALFORMED_URL",
+        }:
+            expected = {
+                "canonical_name": case["canonical_name"] if case else citation.provided_name,
+            }
+            if case:
+                expected.update({
+                    "neutral_citation": case.get("neutral_citation"),
+                    "court": case.get("court"),
+                    "court_code": case.get("court_code"),
+                    "decision_date": case.get("decision_date"),
+                })
+            elif citation.provided_citation:
+                expected["neutral_citation"] = citation.provided_citation
+            expected = {key: value for key, value in expected.items() if value}
+            if expected.get("canonical_name"):
+                live_result = verify_live_source(url_result.normalized_url, expected)
+                live_verification = LiveVerifyResponse(**live_result.__dict__)
         audits.append(CitationAudit(
             occurrence_id=citation.occurrence_id,
             raw_text=citation.raw_text,
@@ -61,6 +84,7 @@ def run_audit(request: AuditRequest) -> AuditResponse:
             source_url=case["source_url"] if case else None,
             source_status=url_result.status if href else None,
             source_url_normalized=url_result.normalized_url,
+            live_verification=live_verification,
             case_exists=case is not None and existence.status == "VERIFIED_EXISTS",
             existence_status=existence.status,
             name_matches=name_matches,
