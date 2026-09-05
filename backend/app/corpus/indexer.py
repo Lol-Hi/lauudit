@@ -3,14 +3,16 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from backend.app.corpus.database import connect, initialize_schema
 from backend.app.normalization.case_names import normalize_case_name
 from backend.app.normalization.citations import normalize_citation
+from backend.app.verifiers.url_classifier import normalize_url
 
 REQUIRED = {
     "case_id",
@@ -24,6 +26,27 @@ REQUIRED = {
     "source_type",
 }
 DEFAULT_CORPUS_NOTES = "Locally prepared permitted judgments; not a comprehensive Singapore case database."
+ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _valid_iso_date(value: object) -> bool:
+    if not isinstance(value, str) or not ISO_DATE_RE.fullmatch(value):
+        return False
+    try:
+        date.fromisoformat(value)
+    except ValueError:
+        return False
+    return True
+
+
+def _valid_iso_datetime(value: object) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() is not None
 
 
 def _sha256(path: Path) -> str:
@@ -129,6 +152,29 @@ def build_index(
             ):
                 errors.append(f"line {line_number}: reported_citations must be a list of strings")
                 continue
+            if not isinstance(record["canonical_name"], str) or not record["canonical_name"].strip():
+                errors.append(f"line {line_number}: canonical_name must not be blank")
+                continue
+            if not _valid_iso_date(record.get("decision_date")):
+                errors.append(f"line {line_number}: decision_date must be a valid YYYY-MM-DD date")
+                continue
+            source_url = record.get("source_url")
+            if not isinstance(source_url, str) or not source_url.strip():
+                errors.append(f"line {line_number}: source_url must not be blank")
+                continue
+            try:
+                normalize_url(source_url)
+            except (TypeError, ValueError) as exc:
+                errors.append(f"line {line_number}: malformed source_url ({exc})")
+                continue
+            source_verified = record.get("source_verified", False)
+            if not isinstance(source_verified, bool):
+                errors.append(f"line {line_number}: source_verified must be boolean")
+                continue
+            retrieved_at = record.get("retrieved_at")
+            if retrieved_at is not None and not _valid_iso_datetime(retrieved_at):
+                errors.append(f"line {line_number}: retrieved_at must be an ISO-8601 datetime with timezone")
+                continue
             document = _resolve_document(cases_path, record["document_path"])
             if not document.exists():
                 errors.append(f"line {line_number}: document not found {record['document_path']}")
@@ -147,6 +193,15 @@ def build_index(
             if previous and previous != record["case_id"]:
                 errors.append(f"duplicate citation {citation!r} used by {previous} and {record['case_id']}")
             citation_owners[normalized] = record["case_id"]
+
+    name_owners: dict[str, str] = {}
+    for record in records:
+        for name in [record["canonical_name"], *record["aliases"]]:
+            normalized = normalize_case_name(name)
+            previous = name_owners.get(normalized)
+            if previous and previous != record["case_id"]:
+                errors.append(f"duplicate canonical name/alias {name!r} used by {previous} and {record['case_id']}")
+            name_owners[normalized] = record["case_id"]
 
     if errors:
         raise ValueError("\n".join(errors))
@@ -194,7 +249,13 @@ def build_index(
         )
         for record in records:
             connection.execute(
-                "INSERT INTO case_provenance VALUES (?, ?, ?, ?, ?, ?, ?)",
+                """
+                INSERT INTO case_provenance (
+                    snapshot_id, case_id, document_path, document_sha256,
+                    document_size_bytes, source_url, source_type,
+                    source_verified, retrieved_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
                 (
                     snapshot_id,
                     record["case_id"],
@@ -203,6 +264,8 @@ def build_index(
                     record["_document_size_bytes"],
                     record["source_url"],
                     record["source_type"],
+                    int(record.get("source_verified", False)),
+                    record.get("retrieved_at"),
                 ),
             )
         connection.execute("INSERT INTO corpus_state VALUES ('current_snapshot_id', ?)", (snapshot_id,))
@@ -216,6 +279,25 @@ def build_index(
         if temp_db_path.exists():
             temp_db_path.unlink()
 
+    report_path = db_path.parent / "build_report.json"
+    temporary_report_path = report_path.with_name(f".{report_path.name}.{uuid.uuid4().hex}.tmp")
+    report = {
+        "generated_at": created_at,
+        "snapshot_id": snapshot_id,
+        "cases_sha256": cases_sha256,
+        "completeness": completeness,
+        "record_count": len(records),
+        "document_count": len(records),
+        "offline_build": True,
+        "notes": notes,
+    }
+    try:
+        temporary_report_path.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temporary_report_path, report_path)
+    finally:
+        if temporary_report_path.exists():
+            temporary_report_path.unlink()
+
     return {
         "records": len(records),
         "errors": errors,
@@ -224,4 +306,5 @@ def build_index(
         "cases_sha256": cases_sha256,
         "completeness": completeness,
         "document_files": len(records),
+        "report_path": str(report_path),
     }

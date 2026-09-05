@@ -9,4 +9,5 @@ data/corpus/index.sqlite3
 data/corpus/index.sqlite3-*
 data/corpus/source_pdfs/
 data/corpus/private_documents/
+data/corpus/build_report.json
 *.log

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Optional
 from pathlib import Path
+from typing import Optional
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
@@ -67,6 +67,8 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
             document_size_bytes INTEGER NOT NULL,
             source_url TEXT NOT NULL,
             source_type TEXT NOT NULL,
+            source_verified INTEGER NOT NULL DEFAULT 0,
+            retrieved_at TEXT,
             PRIMARY KEY (snapshot_id, case_id)
         );
         CREATE TABLE IF NOT EXISTS corpus_state (
@@ -75,6 +77,19 @@ def initialize_schema(connection: sqlite3.Connection) -> None:
         );
         """
     )
+    _ensure_column(connection, "case_provenance", "source_verified", "INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(connection, "case_provenance", "retrieved_at", "TEXT")
+
+
+def _ensure_column(
+    connection: sqlite3.Connection,
+    table: str,
+    column: str,
+    definition: str,
+) -> None:
+    columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+    if column not in columns:
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def current_corpus(connection: sqlite3.Connection) -> Optional[dict[str, str]]:

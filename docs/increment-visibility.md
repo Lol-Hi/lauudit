@@ -69,13 +69,14 @@ Run the backend, serve the sample page, load the unpacked extension, and audit t
 - `python scripts/build_index.py` prints clearer validation results.
 - Audit results include a content-derived `corpus_snapshot`, `corpus_completeness`, and corpus notes.
 - `python scripts/build_index.py` prints the metadata SHA-256 and states that no URLs were fetched.
+- Successful builds write a Git-ignored `data/corpus/build_report.json` receipt.
 - A case matched in the local corpus is labelled `KNOWN_CORPUS_SOURCE` when its hyperlink matches the indexed source URL.
 - Rebuilding writes a temporary SQLite index and replaces the active index only after a successful build.
 - Missing judgments remain `NOT_FOUND_IN_VERIFIED_CORPUS`; the interface must not say that the case does not exist.
 
 ### Manual verification
 
-Add one permitted judgment and metadata record, rebuild the index, and audit a response citing it. Confirm that the response reports a `snapshot-*` ID and `partial` completeness. Then temporarily use a missing document path and confirm that the indexer reports the error and exits non-zero without replacing the previous index. Confirm that no PDF or text file is downloaded by the API or extension.
+Add one permitted judgment and metadata record, rebuild the index, and audit a response citing it. Confirm that the response reports a `snapshot-*` ID and `partial` completeness, and inspect the build report. Try an invalid date, blank URL, duplicate name/alias, and missing document; confirm that each build reports an error without replacing the previous index. Confirm that no PDF or text file is downloaded by the API or extension.
 
 ## Increment 4: Source metadata confirmation
 

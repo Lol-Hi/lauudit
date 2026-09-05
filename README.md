@@ -68,7 +68,7 @@ After adding or changing `cases.jsonl` or documents, rebuild the index:
 python scripts/build_index.py
 ```
 
-The indexer validates required fields, document paths, duplicates, citations, and paragraph ingestion. It exits non-zero when malformed records are found. Each successful build creates a content-derived corpus snapshot and records SHA-256 hashes for the metadata file and every indexed document. Rebuilding writes a temporary SQLite database and atomically replaces the active index only after validation and indexing succeed.
+The indexer validates required fields, document paths, duplicate case IDs, duplicate citations, duplicate canonical names/aliases, ISO decision dates, source URLs, and provenance timestamps. It exits non-zero when malformed records are found. Each successful build creates a content-derived corpus snapshot and records SHA-256 hashes for the metadata file and every indexed document. Rebuilding writes a temporary SQLite database and atomically replaces the active index only after validation and indexing succeed. A Git-ignored `data/corpus/build_report.json` receipt is also written for the successful build.
 
 The build is intentionally offline: it never downloads `source_url`, PDF files, or text files. PDFs are an optional corpus-preparation artifact, not an extension-runtime artifact. If the team obtains permitted PDFs, keep them locally under `data/corpus/source_pdfs/`, extract approved text into `data/corpus/private_documents/` or `data/corpus/documents/`, and reference the text path from `cases.jsonl`. Both `source_pdfs/` and `private_documents/` are excluded from Git by default, as is the generated SQLite index. Do not commit real judgments unless the team has verified its redistribution rights.
 

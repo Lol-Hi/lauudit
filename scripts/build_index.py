@@ -19,4 +19,5 @@ if __name__ == "__main__":
     print(f"Corpus snapshot: {result['snapshot_id']}")
     print(f"Cases metadata SHA-256: {result['cases_sha256']}")
     print(f"Completeness: {result['completeness']}")
+    print(f"Build report: {result['report_path']}")
     print("No URLs were fetched; the index uses only locally supplied documents.")

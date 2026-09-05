@@ -16,6 +16,10 @@ Every successful index build records one row in `corpus_snapshots` and one row p
 - `cases_sha256` identifies the exact metadata file used;
 - `document_sha256` and `document_size_bytes` identify the exact local text file indexed;
 - `source_url` records where the maintainer obtained or verified the judgment;
+- `source_verified` records the maintainer's explicit verification decision and is not inferred from the URL's domain;
+- `retrieved_at` records an optional timezone-aware ISO-8601 retrieval timestamp;
 - `completeness` and `notes` state the declared scope of the corpus.
 
 The audit API exposes `corpus_snapshot`, `corpus_completeness`, and `corpus_notes`. A snapshot is provenance for local indexed content; it is not a claim that the source URL is currently reachable or that the corpus is complete.
+
+Successful builds also write `data/corpus/build_report.json`. It records the snapshot ID, metadata hash, record/document counts, completeness, notes, and `offline_build: true`. The report contains no judgment text.
