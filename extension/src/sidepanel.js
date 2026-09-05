@@ -1,2 +1,2 @@
-// Reserved for a fuller side-panel result view in the next iteration.
+// The side panel reuses popup.js while the shared audit UI is being consolidated.
 

@@ -5,13 +5,21 @@
     <h1>Lauudit</h1>
     <div class="actions">
       <button id="audit">Audit response</button>
-      <button id="audit-selection" class="secondary">Audit selected text</button>
+    </div>
+    <div class="selection-mode">
+      <button id="dynamic-selection-toggle" class="secondary" aria-pressed="false">Enable live selection mode</button>
+      <p id="dynamic-selection-state" class="muted">Select a block of text to audit it automatically.</p>
     </div>
     <p id="state" class="muted">Audits the visible page through your local backend.</p>
     <section id="summary" class="dashboard" hidden aria-live="polite">
       <div id="overall-status"></div>
       <div id="audit-meta" class="audit-meta"></div>
       <div id="metrics" class="metrics"></div>
+    </section>
+    <section id="dynamic-selection-results" class="dynamic-selection-results" hidden aria-live="polite">
+      <h2>Live selection audits</h2>
+      <p id="dynamic-selection-summary" class="muted"></p>
+      <div id="dynamic-selection-list"></div>
     </section>
     <section id="results"></section>
     <p class="disclaimer">Audit aid only — not legal advice. Review every finding.</p>
