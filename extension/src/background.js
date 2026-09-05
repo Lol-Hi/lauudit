@@ -7,7 +7,7 @@ chrome.sidePanel
   .catch((error) => console.error("Unable to configure side panel:", error));
 
 async function getPagePayload(tabId) {
-  const message = {type: "COLLECT_RESPONSE"};
+  const message = {type: "COLLECT_RESPONSE_STABLE"};
   const tabs = await chrome.tabs.sendMessage(tabId, message).catch(() => null);
   if (tabs) return tabs;
   await chrome.scripting.executeScript({target: {tabId}, files: ["src/content.js"]});

@@ -10,6 +10,7 @@ class LinkInput(BaseModel):
     href: str
     context: str = ""
     block_id: Optional[str] = None
+    mapping_status: Optional[Literal["EXACT", "UNMAPPED"]] = None
     start: Optional[int] = Field(default=None, ge=0)
     end: Optional[int] = Field(default=None, ge=0)
 
@@ -26,6 +27,8 @@ class AuditRequest(BaseModel):
     response_text: str = Field(min_length=1)
     links: list[LinkInput] = Field(default_factory=list)
     content_blocks: list[ContentBlock] = Field(default_factory=list)
+    candidate_regions: list[dict[str, Any]] = Field(default_factory=list)
+    excluded_regions: list[dict[str, Any]] = Field(default_factory=list)
     capture_diagnostics: dict[str, Any] = Field(default_factory=dict)
     page_url: Optional[str] = None
     user_query: Optional[str] = None
@@ -145,4 +148,5 @@ class AuditResponse(BaseModel):
     overall_status: str
     summary: AuditSummary
     citations: list[CitationAudit]
+    capture_diagnostics: dict[str, Any] = Field(default_factory=dict)
     disclaimer: str = "This tool is an audit aid, not legal advice. Human review is required."

@@ -157,4 +157,5 @@ def run_audit(request: AuditRequest) -> AuditResponse:
         overall_status=overall,
         summary=summary,
         citations=audits,
+        capture_diagnostics=request.capture_diagnostics,
     )

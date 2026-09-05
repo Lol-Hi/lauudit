@@ -5,16 +5,32 @@
   let selectionSequence = 0;
   let lastSubmittedSignature = "";
   const dynamicSelectionRanges = new Map();
+  let mutationVersion = 0;
+  let lastMutationAt = 0;
+  let mutationObserver = null;
+  const STABILITY_QUIET_MS = 350;
+  const STABILITY_MAX_WAIT_MS = 1800;
   const BLOCK_TAGS = new Set([
     "ARTICLE", "BLOCKQUOTE", "DD", "DIV", "DT", "H1", "H2", "H3", "H4", "H5", "H6",
     "LI", "P", "PRE", "SECTION", "TD", "TH",
   ]);
   const EXCLUDED_SELECTOR = "script, style, template, nav, aside, footer, form, textarea, input, button, [aria-hidden=\"true\"], [data-lauudit-ignore]";
+  const CANDIDATE_SELECTOR = [
+    "main", "article", "[role=\"main\"]", "[role=\"article\"]", "[role=\"region\"]",
+    "[aria-live]", "[data-testid]", "[id]",
+  ].join(",");
+  const POSITIVE_HINTS = /(answer|response|result|content|message|conversation|chat|output|completion|prose)/;
+  const NEGATIVE_HINTS = /(source|sources|steps|navigation|sidebar|menu|toolbar|header|footer|citation-list|reference-list)/;
 
   function visible(element) {
-    const style = window.getComputedStyle(element);
-    const box = element.getBoundingClientRect();
-    return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
+    if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
+    try {
+      const style = window.getComputedStyle(element);
+      const box = element.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && box.width > 0 && box.height > 0;
+    } catch (_error) {
+      return false;
+    }
   }
 
   function nodeText(element) {
@@ -36,6 +52,7 @@
   }
 
   function contentBlocks(root) {
+    if (!root?.querySelectorAll) return [];
     const elements = [root, ...Array.from(root.querySelectorAll("*"))];
     const blocks = elements.filter((element) => {
       if (excluded(element) || !visible(element) || !nodeText(element)) return false;
@@ -45,38 +62,138 @@
     return blocks.length ? blocks : [root];
   }
 
+  function startMutationObserver() {
+    if (mutationObserver || typeof MutationObserver !== "function" || !document.body) return;
+    mutationObserver = new MutationObserver(() => {
+      mutationVersion += 1;
+      lastMutationAt = Date.now();
+    });
+    mutationObserver.observe(document.body, {childList: true, subtree: true, characterData: true});
+  }
+
   function rootDescription(element) {
     if (!element) return "none";
-    const label = element.getAttribute("aria-label") || element.id || element.className || "";
+    const className = typeof element.className === "string" ? element.className : "";
+    const label = element.getAttribute("aria-label") || element.id || className || "";
     return `${element.tagName.toLowerCase()}${label ? `[${String(label).trim().slice(0, 120)}]` : ""}`;
   }
 
-  function rootScore(element) {
-    if (!element || excluded(element) || !visible(element)) return -Infinity;
+  function elementLabel(element) {
+    if (!element) return "";
+    const className = typeof element.className === "string" ? element.className : "";
+    return [
+      element.id,
+      className,
+      element.getAttribute("aria-label"),
+      element.getAttribute("role"),
+      element.getAttribute("data-testid"),
+    ].filter(Boolean).join(" ").toLowerCase();
+  }
+
+  function measureCandidate(element) {
     const text = nodeText(element);
-    if (text.length < 40) return -Infinity;
-    const label = `${element.id || ""} ${element.className || ""} ${element.getAttribute("aria-label") || ""}`.toLowerCase();
-    const penalty = /(source|sources|steps|navigation|sidebar|menu)/.test(label) ? 5000 : 0;
-    const bodyPenalty = element === document.body ? 100000 : 0;
-    const blocks = contentBlocks(element).length;
-    return Math.min(text.length, 50000) + blocks * 100 - penalty - bodyPenalty;
+    const blocks = contentBlocks(element);
+    const anchors = Array.from(element.querySelectorAll("a[href]")).filter((anchor) => visible(anchor) && !excluded(anchor));
+    const headings = Array.from(element.querySelectorAll("h1, h2, h3, h4, h5, h6"));
+    const paragraphs = Array.from(element.querySelectorAll("p, li, blockquote, pre"));
+    const controls = Array.from(element.querySelectorAll("button, input, textarea, select")).length;
+    const label = elementLabel(element);
+    const positiveHints = (label.match(POSITIVE_HINTS) || []).length;
+    const negativeHints = (label.match(NEGATIVE_HINTS) || []).length;
+    const linkTextLength = anchors.reduce((total, anchor) => total + nodeText(anchor).length, 0);
+    const linkDensity = text.length ? linkTextLength / text.length : 0;
+    const role = element.getAttribute("role") || "";
+    const semanticBoost = role === "main" || role === "article" || /^(MAIN|ARTICLE)$/.test(element.tagName) ? 1 : 0;
+    return {
+      text_length: text.length,
+      block_count: blocks.length,
+      heading_count: headings.length,
+      paragraph_count: paragraphs.length,
+      link_count: anchors.length,
+      link_density: Number(linkDensity.toFixed(3)),
+      control_count: controls,
+      positive_hints: positiveHints,
+      negative_hints: negativeHints,
+      semantic_boost: semanticBoost,
+      label: label.slice(0, 200),
+    };
+  }
+
+  function candidateScore(element, metrics) {
+    if (!element || excluded(element) || !visible(element) || metrics.text_length < 40) return -Infinity;
+    const sizeScore = Math.min(metrics.text_length, 16000) / 40;
+    const structureScore = Math.min(metrics.block_count, 40) * 12
+      + Math.min(metrics.heading_count, 8) * 18
+      + Math.min(metrics.paragraph_count, 40) * 3;
+    const semanticScore = metrics.semantic_boost * 140 + metrics.positive_hints * 90;
+    const noisePenalty = metrics.negative_hints * 180
+      + Math.max(0, metrics.link_density - 0.2) * 220
+      + Math.max(0, metrics.control_count - 2) * 15;
+    const bodyPenalty = element === document.body ? 650 : 0;
+    return Number((sizeScore + structureScore + semanticScore - noisePenalty - bodyPenalty).toFixed(3));
+  }
+
+  function candidateReason(metrics, element) {
+    const reasons = [];
+    if (metrics.semantic_boost) reasons.push("semantic-main-region");
+    if (metrics.positive_hints) reasons.push("answer-like-label");
+    if (metrics.block_count >= 2) reasons.push("structured-text");
+    if (metrics.heading_count) reasons.push("contains-headings");
+    if (metrics.negative_hints) reasons.push("contains-exclusion-hints");
+    if (element === document.body) reasons.push("document-body-fallback");
+    return reasons;
+  }
+
+  function candidateElements() {
+    const candidates = [document.body, ...Array.from(document.querySelectorAll(CANDIDATE_SELECTOR))];
+    const structural = Array.from(document.querySelectorAll("article, main, section, div, li, blockquote, pre"))
+      .filter((element) => element.childElementCount > 0 || nodeText(element).length >= 160)
+      .slice(0, 180);
+    candidates.push(...structural);
+    return candidates.filter((element, index, values) => element && values.indexOf(element) === index);
   }
 
   function chooseResponseRoot() {
-    const candidates = [
-      ...Array.from(document.querySelectorAll("[data-testid*=response], [data-testid*=answer], [class*=response], [class*=answer], main, article, [role=main]")),
-      document.body,
-    ].filter((element, index, values) => element && values.indexOf(element) === index);
+    const ranked = candidateElements()
+      .filter((element) => !excluded(element) && visible(element))
+      .map((element) => {
+        const metrics = measureCandidate(element);
+        return {element, metrics, score: candidateScore(element, metrics)};
+      })
+      .filter((candidate) => Number.isFinite(candidate.score))
+      .sort((first, second) => second.score - first.score);
     const fallback = document.body;
-    if (!candidates.length) return fallback;
-    return candidates.reduce((best, candidate) => {
-      if (!best) return candidate;
-      return rootScore(candidate) > rootScore(best) ? candidate : best;
-    }, fallback) || fallback;
+    if (!ranked.length) {
+      return {root: fallback, ranked: [], confidence: 0.2, warnings: ["NO_CREDIBLE_RESPONSE_REGION"]};
+    }
+    const best = ranked[0];
+    const second = ranked[1];
+    const gap = second ? best.score - second.score : 240;
+    let confidence = Math.max(0.2, Math.min(0.99, 0.5 + gap / 500));
+    if (best.element === document.body) confidence *= 0.65;
+    if (best.metrics.negative_hints) confidence *= 0.75;
+    const warnings = [];
+    if (best.element === document.body) warnings.push("BODY_FALLBACK_SELECTED");
+    if (second && gap < 75) warnings.push("MULTIPLE_CANDIDATE_REGIONS");
+    if (best.metrics.negative_hints) warnings.push("SELECTED_REGION_HAS_EXCLUSION_HINTS");
+    return {root: best.element, ranked, confidence: Number(confidence.toFixed(3)), warnings};
   }
 
-  function collectPageCapture() {
-    const root = chooseResponseRoot();
+  function excludedRegions() {
+    return Array.from(document.querySelectorAll(EXCLUDED_SELECTOR))
+      .filter((element) => visible(element))
+      .slice(0, 40)
+      .map((element) => ({region: rootDescription(element), text_length: nodeText(element).length, reason: "excluded-selector"}));
+  }
+
+  function isPageStable() {
+    return !lastMutationAt || Date.now() - lastMutationAt >= STABILITY_QUIET_MS;
+  }
+
+  function collectPageCapture({waitedMs = 0} = {}) {
+    startMutationObserver();
+    const selection = chooseResponseRoot();
+    const root = selection.root;
     const blocks = contentBlocks(root);
     const links = [];
     let responseText = "";
@@ -94,41 +211,82 @@
           if (!linkText) return;
           const nextStart = text.indexOf(linkText, linkCursor);
           const localStart = nextStart >= 0 ? nextStart : text.indexOf(linkText);
-          const offset = localStart >= 0 ? localStart : 0;
-          links.push({
+          const mapped = localStart >= 0 && text.slice(localStart, localStart + linkText.length) === linkText;
+          const link = {
             text: linkText,
             href: anchor.href,
             context: text,
             block_id: `block-${blockIndex + 1}`,
-            start: start + offset,
-            end: start + offset + linkText.length,
-          });
-          linkCursor = Math.max(linkCursor, offset + linkText.length);
+            mapping_status: mapped ? "EXACT" : "UNMAPPED",
+          };
+          if (mapped) {
+            link.start = start + localStart;
+            link.end = start + localStart + linkText.length;
+            linkCursor = Math.max(linkCursor, localStart + linkText.length);
+          }
+          links.push(link);
         });
-      return {
-        id: `block-${blockIndex + 1}`,
-        tag: element.tagName.toLowerCase(),
-        text,
-        start,
-        end,
-      };
+      return {id: `block-${blockIndex + 1}`, tag: element.tagName.toLowerCase(), text, start, end};
     });
+    const candidateRegions = selection.ranked.slice(0, 12).map((candidate, index) => ({
+      candidate_id: `candidate-${index + 1}`,
+      region: rootDescription(candidate.element),
+      selected: candidate.element === root,
+      score: candidate.score,
+      reasons: candidateReason(candidate.metrics, candidate.element),
+      metrics: candidate.metrics,
+    }));
+    const unmappedLinkCount = links.filter((link) => link.mapping_status !== "EXACT").length;
+    const stable = isPageStable();
+    const warnings = [...selection.warnings];
+    if (!stable) warnings.push("CONTENT_RECENTLY_CHANGED");
+    if (unmappedLinkCount) warnings.push("LINK_OFFSETS_UNMAPPED");
+    if (selection.confidence < 0.6) warnings.push("LOW_CAPTURE_CONFIDENCE");
     return {
       response_text: responseText,
       links,
       content_blocks: structuredBlocks,
+      candidate_regions: candidateRegions,
+      excluded_regions: excludedRegions(),
       capture_diagnostics: {
+        method: "semantic-dom",
         root: rootDescription(root),
         fallback_to_body: root === document.body,
+        confidence: selection.confidence,
+        stable,
+        waited_ms: waitedMs,
+        mutation_version: mutationVersion,
+        candidate_count: selection.ranked.length,
+        selected_score: selection.ranked[0]?.score ?? null,
         block_count: structuredBlocks.length,
         text_length: responseText.length,
+        link_count: links.length,
+        unmapped_link_count: unmappedLinkCount,
+        omitted_content: root !== document.body,
+        warnings,
       },
     };
   }
 
-  function collectResponse() {
-    const capture = collectPageCapture();
+  function collectResponse(options = {}) {
+    const capture = collectPageCapture(options);
     return {...capture, page_url: location.href, user_query: null, jurisdiction: "Singapore", as_of_date: new Date().toISOString().slice(0, 10)};
+  }
+
+  function collectStableResponse() {
+    startMutationObserver();
+    const startedAt = Date.now();
+    return new Promise((resolve) => {
+      const check = () => {
+        const waitedMs = Date.now() - startedAt;
+        if (isPageStable() || waitedMs >= STABILITY_MAX_WAIT_MS) {
+          resolve(collectResponse({waitedMs}));
+          return;
+        }
+        setTimeout(check, STABILITY_QUIET_MS);
+      };
+      check();
+    });
   }
 
   function rememberSelection() {
@@ -297,6 +455,10 @@
       sendResponse(collectResponse());
       return true;
     }
+    if (message.type === "COLLECT_RESPONSE_STABLE") {
+      collectStableResponse().then(sendResponse);
+      return true;
+    }
     if (message.type === "COLLECT_SELECTED_RESPONSE") {
       const payload = collectSelectedResponse();
       sendResponse(payload ? {ok: true, payload} : {ok: false, error: "Select some response text before auditing."});
@@ -322,4 +484,5 @@
   document.addEventListener("mouseup", () => {
     if (dynamicSelectionEnabled) setTimeout(submitDynamicSelection, 0);
   });
+  startMutationObserver();
 })();
