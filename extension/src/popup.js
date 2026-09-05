@@ -12,6 +12,7 @@ const dynamicSelectionList = document.getElementById("dynamic-selection-list");
 const auditButton = document.getElementById("audit");
 let dynamicSelectionEnabled = false;
 let dynamicAudits = [];
+let lastAuditResult = null;
 
 function esc(value) { const node = document.createElement("div"); node.textContent = value ?? ""; return node.innerHTML; }
 
@@ -88,6 +89,93 @@ function linkExplanation(status) {
   return "";
 }
 
+const LIVE_DISABLED_SOURCE_STATUSES = new Set([
+  "OFFICIAL_SOURCE_SEARCH_PAGE",
+  "TRUSTED_PUBLISHER_SEARCH_PAGE",
+  "MALFORMED_URL",
+]);
+
+function canVerifyOnline(item) {
+  return Boolean(
+    item.source_url_normalized
+    && safeHttpUrl(item.source_url_normalized)
+    && !LIVE_DISABLED_SOURCE_STATUSES.has(item.source_status)
+    && item.link_status !== "LINK_POINTS_TO_SEARCH_RESULTS"
+    && (item.canonical_name || item.provided_name),
+  );
+}
+
+function liveVerificationPayload(item) {
+  const expected = {
+    canonical_name: item.canonical_name || item.provided_name,
+  };
+  const optionalFields = {
+    neutral_citation: item.provided_citation,
+    court: item.court,
+    court_code: item.court_code,
+    decision_date: item.decision_date,
+  };
+  Object.entries(optionalFields).forEach(([key, value]) => {
+    if (value) expected[key] = value;
+  });
+  return {source_url: item.source_url_normalized, expected};
+}
+
+function liveVerificationLabel(result) {
+  if (result?.status === "LIVE_VERIFIED") return "Confirmed live judgment ✅";
+  if (result?.status === "LIVE_METADATA_MISMATCH") return "Live page, metadata mismatch ⚠️";
+  if (result?.status === "LIVE_VERIFICATION_DISABLED") return "Online verification disabled";
+  return result?.reason || "Online verification unavailable";
+}
+
+function liveVerificationMarkup(item) {
+  if (!canVerifyOnline(item)) {
+    return '<p class="live-verification-disabled">Online verification unavailable for this source.</p>';
+  }
+  return `<div class="live-verification" data-occurrence-id="${esc(item.occurrence_id)}">
+    <button class="verify-online secondary" type="button">Verify online</button>
+    <p class="live-disclosure">One read-only request to an allowlisted public source. This does not prove the legal proposition.</p>
+    <div class="live-verification-result" aria-live="polite"></div>
+  </div>`;
+}
+
+function renderLiveVerificationResult(container, result, ok) {
+  if (!ok || !result) {
+    container.innerHTML = "<p class=\"live-unavailable\">Online verification unavailable. The offline audit result is unchanged.</p>";
+    return;
+  }
+  const metadata = Object.entries(result.metadata_match || {})
+    .map(([key, value]) => `${esc(key)}: ${value === true ? "match" : value === false ? "mismatch" : "unknown"}`)
+    .join(" · ");
+  const finalUrl = safeHttpUrl(result.final_url);
+  const finalUrlMarkup = finalUrl
+    ? `<a href="${esc(finalUrl)}" target="_blank" rel="noopener noreferrer">${esc(result.final_url)}</a>`
+    : result.final_url ? esc(result.final_url) : "—";
+  container.innerHTML = `<p class="live-result-label">${esc(liveVerificationLabel(result))}</p>
+    ${metadata ? `<p>Metadata: ${metadata}</p>` : ""}
+    <p>Final URL: ${finalUrlMarkup}<br>Retrieved: ${esc(result.retrieved_at || "—")}</p>`;
+}
+
+function verifyOnline(button) {
+  const container = button.closest(".live-verification");
+  const occurrenceId = container?.dataset.occurrenceId;
+  const item = lastAuditResult?.citations?.find((citation) => citation.occurrence_id === occurrenceId);
+  if (!item || !container) return;
+  button.disabled = true;
+  button.textContent = "Verifying…";
+  const resultContainer = container.querySelector(".live-verification-result");
+  resultContainer.innerHTML = "<p>Checking the allowlisted source…</p>";
+  chrome.runtime.sendMessage({type: "VERIFY_SOURCE_ONLINE", payload: liveVerificationPayload(item)}, (message) => {
+    button.disabled = false;
+    button.textContent = "Verify again";
+    if (chrome.runtime.lastError) {
+      renderLiveVerificationResult(resultContainer, null, false);
+      return;
+    }
+    renderLiveVerificationResult(resultContainer, message?.result, Boolean(message?.ok));
+  });
+}
+
 function renderSummary(result) {
   const s = result.summary || {};
   overallStatus.className = `overall ${toneForStatus(result.overall_status)}`;
@@ -135,6 +223,7 @@ function render(result) {
     state.textContent = "The backend returned an invalid audit response.";
     return;
   }
+  lastAuditResult = result;
   summary.hidden = false;
   renderSummary(result);
   results.innerHTML = result.citations.length ? result.citations.map((item) => {
@@ -159,10 +248,16 @@ function render(result) {
       <p>Existence: ${badge(item.existence_status)}<br>Name: ${badge(item.name_status)}<br>Rule: ${badge(item.rule_support)}${item.rule_confidence != null ? ` (${esc(item.rule_confidence)})` : ""}</p>
       ${item.explanation ? `<p>${esc(item.explanation)}</p>` : ""}
       ${item.needs_human_review ? '<p class="review-required">Human review required</p>' : ""}
+      ${liveVerificationMarkup(item)}
       ${evidence.map((e) => `<blockquote>¶${esc(e.paragraph)}: ${esc(e.text)}</blockquote>`).join("")}
     </article>`;
   }).join("") : "<p>No supported Singapore case citation was detected on this page.</p>";
 }
+
+results.addEventListener("click", (event) => {
+  const button = event.target.closest(".verify-online");
+  if (button) verifyOnline(button);
+});
 
 function renderDynamicSelectionResults() {
   const completed = dynamicAudits.filter((audit) => audit.result);

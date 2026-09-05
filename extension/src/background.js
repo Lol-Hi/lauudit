@@ -1,4 +1,6 @@
-const BACKEND_URL = "http://127.0.0.1:8000/api/v1/audit";
+const BACKEND_ORIGIN = "http://127.0.0.1:8000";
+const BACKEND_URL = `${BACKEND_ORIGIN}/api/v1/audit`;
+const LIVE_VERIFY_URL = `${BACKEND_ORIGIN}/api/v1/sources/verify`;
 
 chrome.sidePanel
   .setPanelBehavior({openPanelOnActionClick: true})
@@ -71,6 +73,28 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = sender.tab?.id;
     if (typeof tabId === "number") auditDynamicSelection(tabId, message.selection_id, message.payload);
     return false;
+  }
+
+  if (message.type === "VERIFY_SOURCE_ONLINE") {
+    (async () => {
+      try {
+        const response = await fetch(LIVE_VERIFY_URL, {
+          method: "POST",
+          headers: {"content-type": "application/json"},
+          body: JSON.stringify(message.payload),
+        });
+        let result = null;
+        try {
+          result = await response.json();
+        } catch (_error) {
+          result = null;
+        }
+        sendResponse({ok: response.ok, result});
+      } catch (_error) {
+        sendResponse({ok: false, result: null});
+      }
+    })();
+    return true;
   }
 
   if (message.type !== "AUDIT_ACTIVE_TAB") return false;
