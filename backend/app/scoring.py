@@ -10,7 +10,7 @@ def citation_status(existence_status: str, name_matches: Optional[bool], link_st
         return existence_status
     if name_matches is False:
         return "VERIFIED_EXISTS_NAME_MISMATCH"
-    if link_status in {"LINK_RESOLVES_TO_DIFFERENT_CASE", "LINK_BROKEN_OR_INACCESSIBLE", "LINK_POINTS_TO_SEARCH_RESULTS"}:
+    if link_status in {"LINK_RESOLVES_TO_DIFFERENT_CASE", "LINK_BROKEN_OR_INACCESSIBLE", "LINK_POINTS_TO_SEARCH_RESULTS", "LINK_SPLIT_OR_AMBIGUOUS"}:
         return "VERIFIED_EXISTS_LINK_MISMATCH"
     if rule_support == "UNSUPPORTED":
         return "VERIFIED_EXISTS_RULE_UNSUPPORTED"

@@ -5,7 +5,7 @@ import uuid
 from backend.app.config import settings
 from backend.app.corpus.database import connect, current_corpus, initialize_schema
 from backend.app.extractors.citations import extract_citations
-from backend.app.extractors.links import link_for_citation
+from backend.app.extractors.links import resolve_links
 from backend.app.scoring import citation_status
 from backend.app.schemas import AuditRequest, AuditResponse, AuditSummary, CitationAudit, Evidence
 from backend.app.verifiers.existence import verify_existence, verify_parallel_existence
@@ -24,7 +24,8 @@ def run_audit(request: AuditRequest) -> AuditResponse:
     known_source_urls = [item["source_url"] for item in known_cases if item.get("source_url")]
     audits: list[CitationAudit] = []
     for citation in extracted:
-        href = link_for_citation(citation, request.links)
+        link_resolution = resolve_links(citation, request.links)
+        href = link_resolution.href
         url_result = classify_url(href, known_source_urls)
         existence = (
             verify_parallel_existence(connection, citation.provided_name, citation.parallel_citations)
@@ -33,7 +34,11 @@ def run_audit(request: AuditRequest) -> AuditResponse:
         )
         case = existence.case
         name_matches, name_status = verify_name(citation.provided_name, case)
-        link_status = verify_link(href, case, known_cases)
+        link_status = (
+            "LINK_SPLIT_OR_AMBIGUOUS"
+            if link_resolution.status == "AMBIGUOUS"
+            else verify_link(href, case, known_cases)
+        )
         if case and settings.rule_evaluator == "heuristic":
             support = evaluate_rule_support(connection, case["case_id"], citation.surrounding_sentence, settings.max_evidence)
         elif case:
@@ -75,7 +80,7 @@ def run_audit(request: AuditRequest) -> AuditResponse:
         verified_cases=sum(item.case_exists for item in audits),
         name_mismatches=sum(item.name_matches is False for item in audits),
         not_found=sum(item.existence_status == "NOT_FOUND_IN_VERIFIED_CORPUS" for item in audits),
-        link_errors=sum(item.link_status in {"LINK_RESOLVES_TO_DIFFERENT_CASE", "LINK_BROKEN_OR_INACCESSIBLE", "LINK_POINTS_TO_SEARCH_RESULTS"} for item in audits),
+        link_errors=sum(item.link_status in {"LINK_RESOLVES_TO_DIFFERENT_CASE", "LINK_BROKEN_OR_INACCESSIBLE", "LINK_POINTS_TO_SEARCH_RESULTS", "LINK_SPLIT_OR_AMBIGUOUS"} for item in audits),
         unsupported_rules=sum(item.rule_support == "UNSUPPORTED" for item in audits),
     )
     overall = "PASS" if audits and all(item.status == "VERIFIED_EXISTS" for item in audits) else ("NO_CITATIONS" if not audits else "REVIEW_REQUIRED")

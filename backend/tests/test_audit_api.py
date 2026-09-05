@@ -39,3 +39,20 @@ def test_audit_api_exposes_parallel_and_footnote_metadata(indexed_db):
     assert citation["parallel_citations"] == ["[2023] SGCA 12", "[2023] 2 SLR 100"]
     assert citation["context_type"] == "footnote"
     assert citation["footnote_number"] == "1"
+
+
+def test_audit_api_marks_split_links_as_ambiguous(indexed_db):
+    client = TestClient(app)
+    response = client.post("/api/v1/audit", json={
+        "response_text": "Lim v Tan [2023] SGCA 12 held that contractual agreement is assessed objectively.",
+        "links": [
+            {"text": "Lim v Tan", "href": "https://example.test/name", "context": "Lim v Tan [2023] SGCA 12 held..."},
+            {"text": "[2023] SGCA 12", "href": "https://example.test/citation", "context": "Lim v Tan [2023] SGCA 12 held..."},
+        ],
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["link_errors"] == 1
+    assert body["citations"][0]["link_status"] == "LINK_SPLIT_OR_AMBIGUOUS"
+    assert body["citations"][0]["status"] == "VERIFIED_EXISTS_LINK_MISMATCH"

@@ -57,11 +57,25 @@ Singapore Law Watch Judgments links are classified as `TRUSTED_PUBLISHER_SOURCE`
 - Case names can retain party suffixes such as `and another` and support more corporate-name tokens such as `(S) Pte Ltd`.
 - Numbered footnote citations expose `context_type: "footnote"` and `footnote_number`.
 - The audit JSON includes `parallel_citations`, `context_type`, and `footnote_number` on each citation.
-- Hyperlink behavior is unchanged in this increment; split-link hardening remains Stage B.
+- Hyperlink behavior is unchanged in this increment; split-link hardening is implemented in the backend-only Stage B increment below.
 
 ### Manual verification
 
 Submit text containing a primary and reported parallel citation, then confirm one citation result contains both values in `parallel_citations`. Submit a numbered footnote citation and confirm its footnote metadata. No network request is made.
+
+## Increment B: backend-only hyperlink hardening
+
+### Visible changes
+
+- Adjacent links whose combined text forms one citation are evaluated together.
+- Split links using the same URL can produce `LINK_CONFIRMS_CASE`.
+- Split links using different URLs produce `LINK_SPLIT_OR_AMBIGUOUS` and require review.
+- Ambiguous links count toward `summary.link_errors` and cannot produce a false link confirmation.
+- No Chrome extension file changes are required; the existing `text`, `href`, and `context` payload is sufficient for this first backend-only implementation.
+
+### Manual verification
+
+Send two adjacent `links` entries for one citation. Use the same `href` for both and confirm link confirmation. Use different `href` values and confirm `LINK_SPLIT_OR_AMBIGUOUS` with `status: "VERIFIED_EXISTS_LINK_MISMATCH"`. Exact single-anchor links and existing search-page behavior should remain unchanged.
 
 ## Increment 2: Frontend source-status display
 
