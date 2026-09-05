@@ -1,3 +1,10 @@
+import {
+  liveVerificationLabel,
+  liveVerificationPayload,
+  renderCitationCard,
+  safeHttpUrl,
+} from "./popup-model.js";
+
 const state = document.getElementById("state");
 const summary = document.getElementById("summary");
 const results = document.getElementById("results");
@@ -24,119 +31,12 @@ function toneForStatus(status) {
   return "warn";
 }
 
-function citationTone(item) {
-  const tones = [item.status, item.existence_status, item.name_status, item.link_status, item.rule_support]
-    .filter(Boolean)
-    .map(toneForStatus);
-  if (tones.includes("bad")) return "bad";
-  if (!tones.length || tones.includes("warn")) return "warn";
-  return "good";
-}
-
-const LINK_LABELS = {
-  LINK_CONFIRMS_CASE: "Link confirms case",
-  LINK_RESOLVES_TO_DIFFERENT_CASE: "Link points to another case",
-  LINK_BROKEN_OR_INACCESSIBLE: "Link could not be confirmed",
-  LINK_POINTS_TO_SEARCH_RESULTS: "Search page, not direct judgment",
-  LINK_SPLIT_OR_AMBIGUOUS: "Split link needs review",
-  NO_LINK_AVAILABLE: "No hyperlink supplied",
-};
-
-const SOURCE_LABELS = {
-  KNOWN_CORPUS_SOURCE: "Known local corpus source",
-  OFFICIAL_ELITIGATION_SOURCE: "Official eLitigation source",
-  OFFICIAL_JUDICIARY_SOURCE: "Official Singapore Courts source",
-  OFFICIAL_SOURCE_SEARCH_PAGE: "Official source search page",
-  TRUSTED_PUBLISHER_SOURCE: "Trusted publisher source",
-  TRUSTED_PUBLISHER_SEARCH_PAGE: "Trusted publisher search page",
-  UNVERIFIED_EXTERNAL_URL: "Unverified external URL",
-  MALFORMED_URL: "Malformed URL",
-};
-
 function displayLabel(value) {
   return String(value ?? "Unknown").replaceAll("_", " ");
 }
 
-function sourceLabel(value) {
-  return SOURCE_LABELS[value] || displayLabel(value);
-}
-
 function badge(value, label = displayLabel(value)) {
   return `<span class="status-badge ${toneForStatus(value)}">${esc(label)}</span>`;
-}
-
-function safeHttpUrl(value) {
-  try {
-    const url = new URL(value);
-    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
-  } catch (_error) {
-    return null;
-  }
-}
-
-function sourceLink(item) {
-  const displayValue = item.source_url || item.source_url_normalized || "";
-  const safeUrl = safeHttpUrl(item.source_url_normalized || item.source_url);
-  if (!displayValue) return "—";
-  if (!safeUrl) return `<span class="unsafe-url">${esc(displayValue)} (not a safe HTTP(S) link)</span>`;
-  return `<a href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(displayValue)}</a>`;
-}
-
-function linkExplanation(status) {
-  if (status === "LINK_SPLIT_OR_AMBIGUOUS") {
-    return "The citation was split across links that point to different URLs. Lauudit did not choose one automatically.";
-  }
-  return "";
-}
-
-const LIVE_DISABLED_SOURCE_STATUSES = new Set([
-  "OFFICIAL_SOURCE_SEARCH_PAGE",
-  "TRUSTED_PUBLISHER_SEARCH_PAGE",
-  "MALFORMED_URL",
-]);
-
-function canVerifyOnline(item) {
-  return Boolean(
-    item.source_url_normalized
-    && safeHttpUrl(item.source_url_normalized)
-    && !LIVE_DISABLED_SOURCE_STATUSES.has(item.source_status)
-    && item.link_status !== "LINK_POINTS_TO_SEARCH_RESULTS"
-    && (item.canonical_name || item.provided_name),
-  );
-}
-
-function liveVerificationPayload(item) {
-  const expected = {
-    canonical_name: item.canonical_name || item.provided_name,
-  };
-  const optionalFields = {
-    neutral_citation: item.provided_citation,
-    court: item.court,
-    court_code: item.court_code,
-    decision_date: item.decision_date,
-  };
-  Object.entries(optionalFields).forEach(([key, value]) => {
-    if (value) expected[key] = value;
-  });
-  return {source_url: item.source_url_normalized, expected};
-}
-
-function liveVerificationLabel(result) {
-  if (result?.status === "LIVE_VERIFIED") return "Confirmed live judgment ✅";
-  if (result?.status === "LIVE_METADATA_MISMATCH") return "Live page, metadata mismatch ⚠️";
-  if (result?.status === "LIVE_VERIFICATION_DISABLED") return "Online verification disabled";
-  return result?.reason || "Online verification unavailable";
-}
-
-function liveVerificationMarkup(item) {
-  if (!canVerifyOnline(item)) {
-    return '<p class="live-verification-disabled">Online verification unavailable for this source.</p>';
-  }
-  return `<div class="live-verification" data-occurrence-id="${esc(item.occurrence_id)}">
-    <button class="verify-online secondary" type="button">Verify online</button>
-    <p class="live-disclosure">One read-only request to an allowlisted public source. This does not prove the legal proposition.</p>
-    <div class="live-verification-result" aria-live="polite"></div>
-  </div>`;
 }
 
 function renderLiveVerificationResult(container, result, ok) {
@@ -226,32 +126,9 @@ function render(result) {
   lastAuditResult = result;
   summary.hidden = false;
   renderSummary(result);
-  results.innerHTML = result.citations.length ? result.citations.map((item) => {
-    const parallel = Array.isArray(item.parallel_citations) ? item.parallel_citations : [];
-    const primary = item.provided_citation || parallel[0] || "—";
-    const parallelOnly = parallel.filter((citation) => citation !== primary);
-    const context = item.context_type === "footnote" && item.footnote_number
-      ? `Footnote ${esc(item.footnote_number)}`
-      : "Body text";
-    const evidence = Array.isArray(item.evidence) ? item.evidence : [];
-    const linkLabel = LINK_LABELS[item.link_status] || displayLabel(item.link_status);
-    const explanation = linkExplanation(item.link_status);
-    return `<article class="card ${citationTone(item)}">
-      <h2>${esc(item.provided_name || item.raw_text || "Citation")}</h2>
-      <p>${badge(item.status)}</p>
-      <p>Primary citation: ${esc(primary)}</p>
-      ${parallelOnly.length ? `<p>Parallel citations: ${parallelOnly.map((citation) => esc(citation)).join("; ")}</p>` : ""}
-      <p>Context: ${context}</p>
-      <p>Canonical: ${esc(item.canonical_name || "—")} ${item.case_id ? `(${esc(item.case_id)})` : ""}</p>
-      <p>Source: ${badge(item.source_status, sourceLabel(item.source_status))}<br>${sourceLink(item)}<br>Link: ${badge(item.link_status, linkLabel)}</p>
-      ${explanation ? `<p class="link-explanation">${esc(explanation)}</p>` : ""}
-      <p>Existence: ${badge(item.existence_status)}<br>Name: ${badge(item.name_status)}<br>Rule: ${badge(item.rule_support)}${item.rule_confidence != null ? ` (${esc(item.rule_confidence)})` : ""}</p>
-      ${item.explanation ? `<p>${esc(item.explanation)}</p>` : ""}
-      ${item.needs_human_review ? '<p class="review-required">Human review required</p>' : ""}
-      ${liveVerificationMarkup(item)}
-      ${evidence.map((e) => `<blockquote>¶${esc(e.paragraph)}: ${esc(e.text)}</blockquote>`).join("")}
-    </article>`;
-  }).join("") : "<p>No supported Singapore case citation was detected on this page.</p>";
+  results.innerHTML = result.citations.length
+    ? result.citations.map(renderCitationCard).join("")
+    : "<p>No supported Singapore case citation was detected on this page.</p>";
 }
 
 results.addEventListener("click", (event) => {

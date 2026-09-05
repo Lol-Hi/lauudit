@@ -1,0 +1,14 @@
+{
+  "name": "lauudit-extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:frontend": "vitest run tests/frontend-model.test.js tests/popup.integration.test.js",
+    "test:integration": "vitest run tests/background.integration.test.js tests/popup.integration.test.js"
+  },
+  "devDependencies": {
+    "jsdom": "^26.1.0",
+    "vitest": "^3.2.4"
+  }
+}

@@ -22,6 +22,7 @@ BENCHMARKS = (
 JS_FILES = (
     ROOT / "extension/src/background.js",
     ROOT / "extension/src/content.js",
+    ROOT / "extension/src/popup-model.js",
     ROOT / "extension/src/popup.js",
     ROOT / "extension/src/sidepanel.js",
 )
@@ -66,6 +67,9 @@ def summarize(label: str, output: str) -> str:
         return f"{match.group(1)} case(s) indexed" if match else "completed"
     if label == "Backend tests":
         match = re.search(r"(\d+) passed", output)
+        return f"{match.group(1)} passed" if match else "completed"
+    if label == "Frontend tests":
+        match = re.search(r"Tests\s+(\d+) passed", output)
         return f"{match.group(1)} passed" if match else "completed"
     if label.endswith("benchmark"):
         match = re.search(r"(\d+)/(\d+) benchmark cases passed", output)
@@ -125,6 +129,15 @@ def main() -> int:
         results.append(check_javascript(node))
     else:
         results.append(StepResult("Extension syntax", False, "node executable not found"))
+
+    frontend_package = ROOT / "extension/package.json"
+    npm = shutil.which("npm")
+    if frontend_package.is_file() and npm:
+        results.append(run_process("Frontend tests", [npm, "--prefix", "extension", "test"]))
+    elif frontend_package.is_file():
+        results.append(StepResult("Frontend tests", False, "npm executable not found"))
+    else:
+        print("[SKIP] Frontend tests: no frontend test suite configured")
 
     results.append(validate_manifest())
 

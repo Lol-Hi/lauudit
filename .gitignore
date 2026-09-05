@@ -11,3 +11,4 @@ data/corpus/source_pdfs/
 data/corpus/private_documents/
 data/corpus/build_report.json
 *.log
+node_modules/
