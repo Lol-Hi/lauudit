@@ -80,6 +80,19 @@ The indexer validates required fields, document paths, duplicate case IDs, dupli
 
 The build is intentionally offline: it never downloads `source_url` or any document. Permitted PDFs may be indexed directly from `data/corpus/documents/` or the ignored `data/corpus/private_documents/` directory; `pypdf` extracts their text locally and the original PDF is not copied into SQLite. Both `source_pdfs/` and `private_documents/` are excluded from Git by default, as is the generated SQLite index. Do not commit real judgments unless the team has verified its redistribution rights.
 
+To explicitly re-check stale allowlisted source URLs and update only the
+current snapshot's `case_provenance` rows, run the maintenance verifier:
+
+```bash
+python scripts/verify_live_sources.py --delay 1
+```
+
+Use `--force` to re-check fresh records, or `--max-age-days 0` to make every
+record eligible. This command may access eLitigation, Singapore Courts, or
+Singapore Law Watch, follows only approved redirects, and never runs as part
+of `/api/v1/audit` or saves fetched documents. Stop and review the result if a
+source reports an access block or CAPTCHA.
+
 Set `CORPUS_COMPLETENESS=partial` for the normal curated corpus. `comprehensive` should only be used after the team has documented the scope and coverage of the collection; it is not the default.
 
 ## Tests

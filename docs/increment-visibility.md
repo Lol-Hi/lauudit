@@ -175,6 +175,66 @@ the expected paragraph and page, and that OCR evidence is labelled separately.
 Try a scanned PDF with no text layer and confirm that the build reports a clear
 error without replacing the existing index.
 
+## Increment 8: Persisted live-source maintenance
+
+The live verifier now has a manual batch workflow. It is separate from both
+the deterministic audit API and the ephemeral `/api/v1/sources/verify`
+endpoint.
+
+### Visible changes
+
+- `scripts/verify_live_sources.py` reads the curated case manifest and checks
+  only records whose `retrieved_at` is older than seven days by default.
+- A successful, mismatched, or unavailable attempted check updates only
+  `source_verified` and `retrieved_at` in the current `case_provenance` row.
+- Untrusted/search URLs are skipped without overwriting prior verification
+  state; fetched HTML is not retained.
+- `--force`, `--max-age-days`, and `--delay` make the maintenance policy
+  explicit for demonstrations and scheduled runs.
+
+### Manual verification
+
+Run the command against a prepared corpus only after confirming that access is
+permitted:
+
+```bash
+python scripts/verify_live_sources.py --force --delay 1
+```
+
+Inspect the JSON summary and then query `case_provenance` for the current
+snapshot. The audit API should produce the same result before and after this
+command; only the optional provenance state changes.
+
+## Increment 9: Judiciary and Singapore Law Watch adapters
+
+Live metadata extraction now supports common semantic/meta-tag layouts used by
+Singapore Courts and Singapore Law Watch in addition to eLitigation's
+judgment-page classes. URL classification remains deterministic and the live
+fetch remains explicit.
+
+### Visible changes
+
+- Direct Judiciary pages retain `OFFICIAL_JUDICIARY_SOURCE` provenance.
+- Direct Singapore Law Watch articles retain `TRUSTED_PUBLISHER_SOURCE`
+  provenance.
+- Their title, citation, date, court code, and common court labels can be
+  compared against corpus metadata.
+- Search/results pages are still rejected before a fetch.
+
+### Manual verification
+
+Use mocked tests for normal development:
+
+```bash
+pytest -m "not live" -q
+```
+
+For a permitted direct page, enable the explicit endpoint and send its
+expected metadata to `/api/v1/sources/verify`. A matching page should return
+`LIVE_VERIFIED`; a page with one differing field should return
+`LIVE_METADATA_MISMATCH` with per-field booleans. The extension remains
+unchanged on this branch.
+
 ## Regression checks for every increment
 
 ```bash

@@ -17,7 +17,7 @@ from urllib.parse import urljoin, urlsplit
 
 import httpx
 
-from backend.app.extractors.citations import NEUTRAL_CITATION_RE
+from backend.app.extractors.citations import CASE_NAME_RE, NEUTRAL_CITATION_RE
 from backend.app.normalization.case_names import name_matches_canonical
 from backend.app.normalization.citations import normalize_citation
 from backend.app.verifiers.url_classifier import classify_url, normalize_url
@@ -39,6 +39,14 @@ TRUSTED_FOR_LIVE_FETCH = {
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 MAX_REDIRECTS = 5
 REDIRECT_STATUSES = {301, 302, 303, 307, 308}
+VOID_TAGS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+BLOCK_MARKERS = (
+    "captcha",
+    "access denied",
+    "verify you are human",
+    "robot check",
+    "cloudflare",
+)
 DATE_RE = re.compile(
     r"\b(?P<day>\d{1,2})\s+(?P<month>January|February|March|April|May|June|July|August|September|October|November|December)\s+(?P<year>\d{4})\b",
     re.I,
@@ -86,6 +94,11 @@ class _ClassTextParser(HTMLParser):
         self._depth = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        if tag.lower() in VOID_TAGS:
+            if tag.lower() == "br":
+                for _, _, buffer in self._active:
+                    buffer.append(" ")
+            return
         self._depth += 1
         classes = set((dict(attrs).get("class") or "").split())
         for target in self.TARGET_CLASSES & classes:
@@ -95,7 +108,8 @@ class _ClassTextParser(HTMLParser):
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
         self.handle_starttag(tag, attrs)
-        self.handle_endtag(tag)
+        if tag.lower() not in VOID_TAGS:
+            self.handle_endtag(tag)
 
     def handle_data(self, data: str) -> None:
         for _, _, buffer in self._active:
@@ -117,6 +131,175 @@ class _ClassTextParser(HTMLParser):
         ]
 
 
+class _PublisherMetadataParser(HTMLParser):
+    """Collect common metadata used by Singapore Courts and Law Watch pages."""
+
+    TARGETS = {
+        "article-title",
+        "case-title",
+        "casename",
+        "court",
+        "court-name",
+        "decision-date",
+        "entry-title",
+        "judgment-title",
+        "judgement-title",
+        "page-title",
+    }
+    IGNORED_TAGS = {"script", "style", "noscript", "template"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.title: list[str] = []
+        self.meta: dict[str, list[str]] = {}
+        self.targets: dict[str, list[list[str]]] = {}
+        self.visible: list[str] = []
+        self._depth = 0
+        self._ignored_depths: list[int] = []
+        self._active: list[tuple[str, int, list[str]]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        is_void = tag.lower() in VOID_TAGS
+        if not is_void:
+            self._depth += 1
+        attributes = {key.lower(): value or "" for key, value in attrs}
+        if not is_void and tag.lower() in self.IGNORED_TAGS:
+            self._ignored_depths.append(self._depth)
+
+        if tag.lower() == "meta":
+            key = (attributes.get("name") or attributes.get("property") or attributes.get("itemprop") or "").lower()
+            content = attributes.get("content", "")
+            if key and content:
+                self.meta.setdefault(key, []).append(" ".join(content.split()))
+        if tag.lower() == "time":
+            value = attributes.get("datetime")
+            if value:
+                self.meta.setdefault("time", []).append(value)
+
+        if is_void:
+            if tag.lower() == "br":
+                if not self._ignored_depths:
+                    self.visible.append(" ")
+                for _, _, buffer in self._active:
+                    buffer.append(" ")
+            return
+
+        if tag.lower() == "title":
+            self._active.append(("__title__", self._depth, self.title))
+
+        classes = set(attributes.get("class", "").lower().split())
+        element_id = attributes.get("id", "").lower()
+        for target in self.TARGETS & (classes | {element_id}):
+            buffer: list[str] = []
+            self.targets.setdefault(target, []).append(buffer)
+            self._active.append((target, self._depth, buffer))
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        self.handle_starttag(tag, attrs)
+        if tag.lower() not in VOID_TAGS:
+            self.handle_endtag(tag)
+
+    def handle_data(self, data: str) -> None:
+        if not self._ignored_depths:
+            self.visible.append(data)
+        for _, _, buffer in self._active:
+            buffer.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        for index in range(len(self._active) - 1, -1, -1):
+            _, start_depth, _ = self._active[index]
+            if start_depth == self._depth:
+                self._active.pop(index)
+                break
+        if self._ignored_depths and self._ignored_depths[-1] == self._depth:
+            self._ignored_depths.pop()
+        self._depth = max(0, self._depth - 1)
+
+    def values(self, key: str) -> list[str]:
+        return [" ".join(str(value).split()) for value in self.meta.get(key.lower(), []) if str(value).strip()]
+
+    def target_values(self) -> list[str]:
+        values: list[str] = []
+        for buffers in self.targets.values():
+            for buffer in buffers:
+                value = " ".join("".join(buffer).split())
+                if value:
+                    values.append(value)
+        return values
+
+
+def _normalise_date(value: str) -> Optional[str]:
+    iso_match = re.search(r"\b(?P<year>19\d{2}|20\d{2})-(?P<month>\d{2})-(?P<day>\d{2})\b", value)
+    if iso_match:
+        try:
+            parsed = datetime(
+                int(iso_match.group("year")),
+                int(iso_match.group("month")),
+                int(iso_match.group("day")),
+            )
+        except ValueError:
+            return None
+        return parsed.date().isoformat()
+    date_match = DATE_RE.search(value)
+    if not date_match:
+        return None
+    try:
+        parsed = datetime(
+            int(date_match.group("year")),
+            MONTHS[date_match.group("month").lower()],
+            int(date_match.group("day")),
+        )
+    except ValueError:
+        return None
+    return parsed.date().isoformat()
+
+
+def _clean_publisher_name(value: str) -> Optional[str]:
+    candidate = " ".join(value.split()).strip(" \t|:-—")
+    candidate = re.sub(r"^(?:judgment|judgement|case|decision)\s*[:|-]\s*", "", candidate, flags=re.I)
+    candidate = re.sub(r"\s+(?:\||[-—:] )\s*(?:Singapore Courts?|Singapore Law Watch|eLitigation).*$", "", candidate, flags=re.I)
+    citation_match = NEUTRAL_CITATION_RE.search(candidate)
+    if citation_match:
+        candidate = candidate[: citation_match.start()].strip(" \t|:-—")
+    name_match = CASE_NAME_RE.search(candidate)
+    if name_match:
+        candidate = name_match.group(0)
+    return candidate if " v " in candidate.lower() or " versus " in candidate.lower() else None
+
+
+def _parse_publisher_metadata(html: str) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
+    parser = _PublisherMetadataParser()
+    try:
+        parser.feed(html)
+        parser.close()
+    except Exception:
+        return None, None, None, None, None
+
+    title = " ".join(parser.title).strip()
+    # HTMLParser stores title text through handle_data as visible text; title
+    # candidates therefore come from the title/meta/semantic element values.
+    candidates = parser.values("citation_title") + parser.values("og:title") + parser.target_values()
+    candidates.extend([title, " ".join(parser.visible)])
+    combined = " ".join(candidates)
+    citation_match = NEUTRAL_CITATION_RE.search(combined)
+    citation = citation_match.group(0) if citation_match else None
+    court_code = citation_match.group("code").upper() if citation_match else None
+    case_name = next((name for value in candidates if (name := _clean_publisher_name(value))), None)
+
+    date_values = (
+        parser.values("citation_date")
+        + parser.values("date")
+        + parser.values("datepublished")
+        + parser.values("decision_date")
+        + parser.values("time")
+        + [" ".join(parser.visible)]
+    )
+    decision_date = next((date for value in date_values if (date := _normalise_date(value))), None)
+    court_values = parser.values("court") + parser.values("dc.court") + parser.target_values()
+    court_text = " ".join(court_values + parser.visible)
+    return case_name, citation, court_code, decision_date, court_text or None
+
+
 def _allowlisted_host(url: str) -> bool:
     return (urlsplit(url).hostname or "").lower() in LIVE_ALLOWED_HOSTS
 
@@ -125,7 +308,13 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _parse_metadata(html: str) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
+def _parse_metadata(
+    html: str,
+    source_url: Optional[str] = None,
+) -> tuple[Optional[str], Optional[str], Optional[str], Optional[str], Optional[str]]:
+    hostname = (urlsplit(source_url).hostname or "").lower() if source_url else ""
+    if hostname.endswith("judiciary.gov.sg") or hostname.endswith("singaporelawwatch.sg"):
+        return _parse_publisher_metadata(html)
     parser = _ClassTextParser()
     try:
         parser.feed(html)
@@ -300,7 +489,21 @@ def verify_live_source(
             reason="The source response exceeded the configured safety limit.",
         )
 
-    case_name, neutral_citation, court_code, decision_date, court_text = _parse_metadata(response.text)
+    body_preview = response.text[:200_000].lower()
+    if any(marker in body_preview for marker in BLOCK_MARKERS):
+        return LiveVerificationResult(
+            "LIVE_ACCESS_BLOCKED",
+            attempted=True,
+            source_verified=False,
+            final_url=final_url_normalized,
+            retrieved_at=retrieved_at,
+            reason="The source appears to require CAPTCHA or has blocked automated access; no retry was attempted.",
+        )
+
+    case_name, neutral_citation, court_code, decision_date, court_text = _parse_metadata(
+        response.text,
+        final_url_normalized,
+    )
     if not case_name and not neutral_citation:
         return LiveVerificationResult(
             "LIVE_SOURCE_NOT_A_JUDGMENT",

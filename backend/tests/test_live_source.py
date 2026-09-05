@@ -49,6 +49,31 @@ def test_metadata_match_and_redirect_following():
     assert result.metadata_match == {"name": True, "citation": True, "court": True, "date": True}
 
 
+def test_elitigation_case_name_with_bare_br_tags_is_extracted():
+    html = """
+    <div class="HN-CaseName">Howe Wen Khong Rocky and others <br>v<br>Attorney-General</div>
+    <div class="HN-CaseName">[2026] SGCA 39</div>
+    <div class="CaseNumber">Court of Appeal / Civil Appeal No 4 of 2026</div>
+    <div class="Judg-Date-Reserved">3 September 2026</div>
+    """
+    result = verify_live_source(
+        "https://www.elitigation.sg/gdviewer/s/2026_SGCA_39",
+        {
+            "canonical_name": "Howe Wen Khong Rocky and others v Attorney-General",
+            "neutral_citation": "[2026] SGCA 39",
+            "court": "Court of Appeal",
+            "court_code": "SGCA",
+            "decision_date": "2026-09-03",
+        },
+        client_factory=client_factory(
+            lambda request: httpx.Response(200, headers={"content-type": "text/html"}, text=html)
+        ),
+    )
+
+    assert result.status == "LIVE_VERIFIED"
+    assert result.case_name == "Howe Wen Khong Rocky and others v Attorney-General"
+
+
 def test_metadata_mismatch_is_not_verified():
     result = verify_live_source(
         "https://www.elitigation.sg/gdviewer/s/2023_SGCA_12",
@@ -122,6 +147,23 @@ def test_http_error_is_reported_without_retrying():
     assert result.attempted is True
     assert len(requests) == 1
     assert "Lauudit-Verifier/" in requests[0].headers["user-agent"]
+
+
+def test_block_page_aborts_without_parsing_as_a_judgment():
+    result = verify_live_source(
+        "https://www.elitigation.sg/gdviewer/s/2023_SGCA_12",
+        {"canonical_name": "Lim v Tan"},
+        client_factory=client_factory(
+            lambda request: httpx.Response(
+                200,
+                headers={"content-type": "text/html"},
+                text="<html><title>Just a moment... CAPTCHA</title></html>",
+            )
+        ),
+    )
+
+    assert result.status == "LIVE_ACCESS_BLOCKED"
+    assert result.source_verified is False
 
 
 def test_redirect_outside_allowlist_is_not_followed():
