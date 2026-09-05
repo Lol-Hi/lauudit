@@ -50,3 +50,43 @@ def test_adjacent_split_links_with_different_urls_are_ambiguous():
     assert result.status == "AMBIGUOUS"
     assert result.href is None
     assert result.hrefs == ("https://example.test/name", "https://example.test/citation")
+
+
+def test_positional_link_metadata_resolves_the_exact_citation_occurrence():
+    response_text = "Intro. Lim v Tan [2023] SGCA 12 held that the test is objective."
+    citation = extract_citations(response_text)[0]
+    links = [
+        LinkInput(
+            text="unrelated case",
+            href="https://example.test/unrelated",
+            context="unrelated case",
+            start=0,
+            end=14,
+        ),
+        LinkInput(
+            text="Lim v Tan [2023] SGCA 12",
+            href="https://official.test/case-1",
+            context="different surrounding text",
+            start=citation.start,
+            end=citation.end,
+        ),
+    ]
+
+    result = resolve_links(citation, links)
+
+    assert result.status == "SINGLE"
+    assert result.href == "https://official.test/case-1"
+
+
+def test_overlapping_positional_links_are_ambiguous():
+    response_text = "Lim v Tan [2023] SGCA 12"
+    citation = extract_citations(response_text)[0]
+    links = [
+        LinkInput(text="name", href="https://example.test/name", start=citation.start, end=citation.end),
+        LinkInput(text="citation", href="https://example.test/citation", start=citation.start, end=citation.end),
+    ]
+
+    result = resolve_links(citation, links)
+
+    assert result.status == "AMBIGUOUS"
+    assert result.hrefs == ("https://example.test/name", "https://example.test/citation")

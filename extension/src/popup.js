@@ -78,6 +78,15 @@ function verifyOnline(button) {
 
 function renderSummary(result) {
   const s = result.summary || {};
+  const capture = result.capture_diagnostics || {};
+  const captureConfidence = Number(capture.confidence);
+  const captureStatus = capture.method
+    ? `Capture: ${esc(displayLabel(capture.method))} · Confidence: ${Number.isFinite(captureConfidence) ? `${Math.round(captureConfidence * 100)}%` : "unknown"}${capture.stable === false ? " · still changing" : ""}`
+    : "";
+  const captureWarnings = Array.isArray(capture.warnings) && capture.warnings.length
+    ? `Capture warnings: ${esc(capture.warnings.map(displayLabel).join(", "))}`
+    : "";
+  const captureRoot = capture.root ? `Capture root: ${esc(capture.root)}` : "";
   overallStatus.className = `overall ${toneForStatus(result.overall_status)}`;
   overallStatus.innerHTML = `<span class="overall-label">Overall status</span><strong>${esc(result.overall_status || "UNKNOWN")}</strong>`;
 
@@ -85,9 +94,13 @@ function renderSummary(result) {
     `Audit: ${esc(result.audit_id || "—")}`,
     `Jurisdiction: ${esc(result.jurisdiction || "—")}`,
     `Corpus snapshot: ${esc(result.corpus_snapshot || "—")} ${result.corpus_snapshot ? '<button id="copy-snapshot" class="copy-button" type="button">Copy</button>' : ""}`,
+    result.verification_authority ? `Verification authority: ${esc(displayLabel(result.verification_authority))}` : "",
     result.corpus_completeness ? `Coverage: ${esc(displayLabel(result.corpus_completeness))}` : "",
     result.corpus_notes ? `Corpus notes: ${esc(result.corpus_notes)}` : "",
     result.corpus_completeness ? "A corpus miss is not proof that a case does not exist." : "",
+    captureStatus,
+    captureRoot,
+    captureWarnings,
   ].filter(Boolean).map((value) => `<span>${value}</span>`).join("");
 
   const copyButton = document.getElementById("copy-snapshot");
@@ -156,6 +169,27 @@ function updateDynamicAudit(selectionId, values) {
   renderDynamicSelectionResults();
 }
 
+async function ensureCurrentPageAccess() {
+  if (!chrome.tabs?.query || !chrome.permissions?.request) return {ok: true};
+  const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+  let url;
+  try {
+    url = new URL(tab?.url || "");
+  } catch (_error) {
+    return {ok: false, error: "This browser page cannot be audited."};
+  }
+  if (!new Set(["http:", "https:"]).has(url.protocol)) {
+    return {ok: false, error: "Browser-internal pages and extension pages cannot be audited."};
+  }
+  const origin = `${url.protocol}//${url.host}/*`;
+  const alreadyGranted = await chrome.permissions.contains?.({origins: [origin]});
+  if (alreadyGranted) return {ok: true};
+  const granted = await chrome.permissions.request({origins: [origin]});
+  return granted
+    ? {ok: true}
+    : {ok: false, error: "Host access was not granted, so Lauudit cannot read this page."};
+}
+
 dynamicSelectionToggle.addEventListener("click", () => {
   const enabled = !dynamicSelectionEnabled;
   dynamicSelectionToggle.disabled = true;
@@ -197,10 +231,21 @@ chrome.runtime.onMessage.addListener((message) => {
   }
 });
 
-auditButton.addEventListener("click", () => {
+auditButton.addEventListener("click", async () => {
   auditButton.disabled = true;
   state.textContent = "Collecting the active page…";
   results.innerHTML = "";
+  let access;
+  try {
+    access = await ensureCurrentPageAccess();
+  } catch (error) {
+    access = {ok: false, error: error?.message || "Unable to request access to this page."};
+  }
+  if (!access.ok) {
+    auditButton.disabled = false;
+    state.textContent = `Audit failed: ${access.error}`;
+    return;
+  }
   chrome.runtime.sendMessage({type: "AUDIT_ACTIVE_TAB"}, (message) => {
     const runtimeError = chrome.runtime.lastError?.message;
     const backendError = message?.error;

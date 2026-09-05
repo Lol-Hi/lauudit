@@ -66,4 +66,56 @@ describe("background online-verification integration contract", () => {
       expect.objectContaining({method: "POST"}),
     );
   });
+
+  it("requests a stable page capture before sending an audit", async () => {
+    const auditResult = {
+      audit_id: "audit-browser",
+      summary: {total_citations: 1},
+      citations: [],
+    };
+    fetchMock = vi.fn(async (url) => {
+      if (url.endsWith("/audit")) return {ok: true, json: async () => auditResult};
+      return {ok: true, json: async () => ({})};
+    });
+    const {chrome, listener} = loadBackground(fetchMock);
+    const payload = {
+      response_text: "Lim v Tan [2023] SGCA 12",
+      links: [],
+      capture_diagnostics: {method: "semantic-dom", stable: true, confidence: 0.9},
+    };
+    chrome.tabs.query.mockResolvedValue([{id: 42}]);
+    chrome.tabs.sendMessage.mockImplementation(async (_tabId, message) => {
+      if (message.type === "COLLECT_RESPONSE_STABLE") return payload;
+      return {};
+    });
+
+    const response = await new Promise((resolve) => {
+      listener({type: "AUDIT_ACTIVE_TAB"}, {}, resolve);
+    });
+
+    expect(response).toEqual({ok: true, result: auditResult});
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(42, {type: "COLLECT_RESPONSE_STABLE"});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8000/api/v1/audit",
+      expect.objectContaining({method: "POST"}),
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject(payload);
+  });
+
+  it("explains when the active page cannot be accessed", async () => {
+    const {chrome, listener} = loadBackground(fetchMock);
+    chrome.tabs.query.mockResolvedValue([{id: 42}]);
+    chrome.tabs.sendMessage.mockRejectedValue(new Error("Could not establish connection. Receiving end does not exist."));
+    chrome.scripting.executeScript.mockRejectedValue(new Error(
+      "Cannot access contents of the page. Extension manifest must request permission to access the respective host.",
+    ));
+
+    const response = await new Promise((resolve) => {
+      listener({type: "AUDIT_ACTIVE_TAB"}, {}, resolve);
+    });
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain("Reload the extension and the tab");
+    expect(response.error).toContain("chrome://");
+  });
 });

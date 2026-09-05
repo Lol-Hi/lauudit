@@ -1,6 +1,10 @@
+from dataclasses import replace
+
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
+from backend.app.verifiers.live_source import LiveVerificationResult
+from backend.app.verifiers.source_search import SearchCandidate, SearchResult
 
 
 def test_audit_api(indexed_db):
@@ -11,7 +15,9 @@ def test_audit_api(indexed_db):
     assert client.get("/favicon.ico").status_code == 204
     response = client.post("/api/v1/audit", json={
         "response_text": "Tan v Lim [2023] SGCA 12 held that contractual agreement is assessed objectively.",
-        "links": [{"text": "Tan v Lim [2023] SGCA 12", "href": "https://official.test/case-1", "context": "Tan v Lim [2023] SGCA 12 held..."}],
+        "links": [{"text": "Tan v Lim [2023] SGCA 12", "href": "https://official.test/case-1", "context": "Tan v Lim [2023] SGCA 12 held...", "start": 10, "end": 24, "block_id": "block-1"}],
+        "content_blocks": [{"id": "block-1", "tag": "p", "text": "Tan v Lim [2023] SGCA 12 held that contractual agreement is assessed objectively.", "start": 0, "end": 78}],
+        "capture_diagnostics": {"root": "main[answer-panel]", "fallback_to_body": False, "block_count": 1, "text_length": 78},
         "page_url": "http://localhost",
         "as_of_date": "2026-09-05",
     })
@@ -25,7 +31,10 @@ def test_audit_api(indexed_db):
     assert body["citations"][0]["link_status"] == "LINK_CONFIRMS_CASE"
     assert body["citations"][0]["source_status"] == "KNOWN_CORPUS_SOURCE"
     assert body["citations"][0]["source_url_normalized"] == "https://official.test/case-1"
+    assert body["citations"][0]["text_start"] == 10
+    assert body["citations"][0]["text_end"] == 24
     assert body["citations"][0]["needs_human_review"] is True
+    assert body["capture_diagnostics"]["root"] == "main[answer-panel]"
 
 
 def test_audit_api_exposes_parallel_and_footnote_metadata(indexed_db):
@@ -40,6 +49,80 @@ def test_audit_api_exposes_parallel_and_footnote_metadata(indexed_db):
     assert citation["parallel_citations"] == ["[2023] SGCA 12", "[2023] 2 SLR 100"]
     assert citation["context_type"] == "footnote"
     assert citation["footnote_number"] == "1"
+
+
+def test_audit_api_extracts_from_explicit_markdown_payload(indexed_db):
+    client = TestClient(app)
+    response = client.post("/api/v1/audit", json={
+        "response_text": "The plain-text fallback does not contain a citation.",
+        "response_markdown": "**Lim v Tan** [2023] SGCA 12 held that contractual agreement is assessed objectively.",
+        "response_format": "markdown",
+        "capture_diagnostics": {"method": "semantic-dom-markdown", "format": "markdown"},
+    })
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["summary"]["total_citations"] == 1
+    assert body["citations"][0]["provided_citation"] == "[2023] SGCA 12"
+    assert body["capture_diagnostics"]["format"] == "markdown"
+
+
+def test_elitigation_is_authoritative_over_local_corpus(indexed_db, monkeypatch):
+    import backend.app.pipeline as pipeline
+
+    monkeypatch.setattr(pipeline, "settings", replace(pipeline.settings, enable_live_verification=True))
+
+    def fail_connect(_path):
+        raise AssertionError("live audits must not open the local corpus")
+
+    monkeypatch.setattr(pipeline, "connect", fail_connect)
+    official_url = "https://www.elitigation.sg/gdviewer/s/2008_SGCA_24"
+    monkeypatch.setattr(
+        pipeline,
+        "search_elitigation",
+        lambda name, citation: SearchResult(
+            attempted=True,
+            query=f'"{citation}"',
+            candidates=[SearchCandidate(url=official_url)],
+        ),
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "verify_live_source",
+        lambda url, expected: LiveVerificationResult(
+            status="LIVE_VERIFIED",
+            attempted=True,
+            source_verified=True,
+            final_url=official_url,
+            metadata_match={"citation": True},
+            case_name="Man Mohan Singh s/o Jothirambal Singh and Another v Zurich Insurance (Singapore) Pte Ltd",
+            neutral_citation="[2008] SGCA 24",
+            court_code="SGCA",
+            reason="Live metadata comparison completed.",
+        ),
+    )
+
+    response = TestClient(app).post("/api/v1/audit", json={
+        "response_text": "Jothirambal Singh and another v Zurich Insurance (Singapore) Pte Ltd [2008] SGCA 24.",
+        "links": [{
+            "text": "Jothirambal Singh and another v Zurich Insurance (Singapore) Pte Ltd [2008] SGCA 24",
+            "href": "https://release-notes.lawnet.com/2026/05/19/may-2026-lawnet-release",
+            "context": "Jothirambal Singh and another v Zurich Insurance (Singapore) Pte Ltd [2008] SGCA 24",
+        }],
+    })
+
+    assert response.status_code == 200
+    citation = response.json()["citations"][0]
+    assert citation["status"] == "LIVE_VERIFIED"
+    assert citation["existence_status"] == "VERIFIED_EXISTS"
+    assert citation["case_exists"] is True
+    assert citation["case_id"] is None
+    assert citation["canonical_name"].startswith("Man Mohan Singh s/o Jothirambal Singh")
+    assert citation["source_url_normalized"] == official_url
+    assert citation["source_discovery"] == "OFFICIAL_ELITIGATION_SEARCH"
+    body = response.json()
+    assert body["verification_authority"] == "elitigation"
+    assert body["corpus_snapshot"] == "elitigation-live"
 
 
 def test_audit_api_marks_split_links_as_ambiguous(indexed_db):

@@ -65,3 +65,12 @@ def test_marks_numbered_footnote_context():
     assert len(result) == 1
     assert result[0].context_type == "footnote"
     assert result[0].footnote_number == "1"
+
+
+def test_pairs_wrapped_reference_name_and_citation_with_footnote_marker():
+    result = extract_citations("• Ting Siew May v Boon Lay Choo and another\n5\n[2014] SGCA 28")
+
+    assert len(result) == 1
+    assert result[0].provided_name == "Ting Siew May v Boon Lay Choo and another"
+    assert result[0].provided_citation == "[2014] SGCA 28"
+    assert result[0].raw_text == "Ting Siew May v Boon Lay Choo and another\n5\n[2014] SGCA 28"

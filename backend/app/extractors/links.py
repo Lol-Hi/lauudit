@@ -38,12 +38,25 @@ def _unique_resolution(hrefs: list[str]) -> LinkResolution:
 
 
 def resolve_links(citation, links: list[LinkInput]) -> LinkResolution:
-    """Resolve links using the existing text/context payload only.
+    """Resolve links using positional metadata, then text/context fallbacks.
 
-    This intentionally does not require browser-side offsets. Adjacent anchors
-    are combined only when their text forms the citation; different URLs are
-    returned as ambiguous instead of being guessed.
+    Browser-provided offsets are the strongest signal because they preserve the
+    exact relationship between a citation occurrence and its source anchor.
+    Older clients may omit them, so the existing text/context heuristics remain
+    as a compatibility fallback. Different URLs are returned as ambiguous
+    instead of being guessed.
     """
+    positional = [
+        link.href
+        for link in links
+        if link.start is not None
+        and link.end is not None
+        and link.start < citation.end
+        and link.end > citation.start
+    ]
+    if positional:
+        return _unique_resolution(positional)
+
     raw = _compact(citation.raw_text)
     name = _compact(citation.provided_name or "")
     citation_text = _compact(citation.provided_citation or "")

@@ -20,6 +20,7 @@ CASE_NAME_RE = re.compile(
     rf"(?P<right>(?:Public Prosecutor|PP|{PARTY_WORD}(?:\s+{PARTY_WORD}){{0,17}}))",
 )
 FOOTNOTE_MARKER_RE = re.compile(r"^\s*(?:\[\^(?P<bracket>\d+)\]|\^(?P<caret>\d+)|(?P<plain>\d+)[.)])\s+")
+REFERENCE_GAP_RE = re.compile(r"^[\s\u2022•·●\-–—]*(?:\d+[.)]?[\s\u2022•·●\-–—]*)*$")
 
 
 @dataclass
@@ -129,6 +130,46 @@ def _same_sentence(text: str, first_end: int, second_start: int) -> bool:
     return not re.search(r"[.!?]", text[first_end:second_start])
 
 
+def _pair_wrapped_reference_lines(text: str, results: list[ExtractedCitation]) -> list[ExtractedCitation]:
+    """Pair a case name with its citation when a rendered reference wraps lines.
+
+    Legal-AI reference lists commonly render the case name, a footnote marker,
+    and the neutral citation as separate DOM lines. The ordinary sentence
+    extractor intentionally treats newlines as boundaries, so pair only the
+    narrow, unambiguous pattern of a name-only occurrence immediately followed
+    by a citation-only occurrence with whitespace/bullet/number material in the
+    gap. Ordinary adjacent references remain separate.
+    """
+    paired: list[ExtractedCitation] = []
+    index = 0
+    while index < len(results):
+        current = results[index]
+        if index + 1 < len(results):
+            following = results[index + 1]
+            gap = text[current.end : following.start]
+            can_pair = (
+                current.provided_name
+                and current.provided_citation is None
+                and following.provided_name is None
+                and following.provided_citation is not None
+                and len(gap) <= 96
+                and REFERENCE_GAP_RE.fullmatch(gap) is not None
+                and current.context_type == following.context_type
+            )
+            if can_pair:
+                current.provided_citation = following.provided_citation
+                current.parallel_citations = following.parallel_citations
+                current.raw_text = text[current.start : following.end].strip()
+                current.surrounding_sentence = text[current.start : following.end].strip()
+                current.end = following.end
+                paired.append(current)
+                index += 2
+                continue
+        paired.append(current)
+        index += 1
+    return paired
+
+
 def extract_citations(text: str) -> list[ExtractedCitation]:
     matches = list(NEUTRAL_CITATION_RE.finditer(text)) + list(REPORTED_CITATION_RE.finditer(text))
     matches.sort(key=lambda m: m.start())
@@ -159,6 +200,7 @@ def extract_citations(text: str) -> list[ExtractedCitation]:
         )
         next_index += 1
     results.sort(key=lambda item: item.start)
+    results = _pair_wrapped_reference_lines(text, results)
     for i, item in enumerate(results, 1):
         item.occurrence_id = f"citation-{i:03d}"
     return results

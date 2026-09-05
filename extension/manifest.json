@@ -3,8 +3,9 @@
   "name": "Lauudit",
   "version": "0.1.0",
   "description": "Audit visible legal-AI responses against a local Singapore case corpus.",
-  "permissions": ["activeTab", "scripting", "storage", "sidePanel"],
+  "permissions": ["activeTab", "scripting", "storage", "sidePanel", "tabs"],
   "host_permissions": ["http://127.0.0.1:8000/*", "http://localhost:8000/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "action": {
     "default_title": "Open Lauudit side panel"
   },

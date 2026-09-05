@@ -32,6 +32,26 @@ statuses are discovery signals only.
 
 Citation extraction also exposes `parallel_citations` for grouped parallel references, `context_type` (`body` or `footnote`), and an optional `footnote_number`. `provided_citation` remains the primary citation for backward compatibility. Link matching may return `LINK_SPLIT_OR_AMBIGUOUS` when adjacent citation fragments point to different URLs.
 
+## Page-reading capture
+
+The extension sends the backend a structured capture in addition to the
+backward-compatible `response_text` and `links` fields:
+
+- `content_blocks` contains the selected visible blocks and their exact `start`
+  and `end` offsets in `response_text`;
+- each link may include `block_id`, `mapping_status`, `start`, and `end`;
+- `candidate_regions` records response-region candidates, scores, reasons, and
+  measurable features used for selection;
+- `excluded_regions` records visible regions removed by generic exclusion rules;
+- `capture_diagnostics` records the capture method, confidence, mutation
+  stability, selected root, link-mapping failures, iframe/shadow-root limits,
+  and warnings.
+
+The backend returns `capture_diagnostics` unchanged with the audit response so
+the extension can show when a page was captured with low confidence or while it
+was still changing. Positional link metadata is preferred for citation matching;
+older clients without offsets continue to use the text/context fallback.
+
 ## Corpus provenance
 
 Every successful index build records one row in `corpus_snapshots` and one row per case in `case_provenance`:
