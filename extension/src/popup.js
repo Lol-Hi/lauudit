@@ -40,8 +40,23 @@ const LINK_LABELS = {
   NO_LINK_AVAILABLE: "No hyperlink supplied",
 };
 
+const SOURCE_LABELS = {
+  KNOWN_CORPUS_SOURCE: "Known local corpus source",
+  OFFICIAL_ELITIGATION_SOURCE: "Official eLitigation source",
+  OFFICIAL_JUDICIARY_SOURCE: "Official Singapore Courts source",
+  OFFICIAL_SOURCE_SEARCH_PAGE: "Official source search page",
+  TRUSTED_PUBLISHER_SOURCE: "Trusted publisher source",
+  TRUSTED_PUBLISHER_SEARCH_PAGE: "Trusted publisher search page",
+  UNVERIFIED_EXTERNAL_URL: "Unverified external URL",
+  MALFORMED_URL: "Malformed URL",
+};
+
 function displayLabel(value) {
   return String(value ?? "Unknown").replaceAll("_", " ");
+}
+
+function sourceLabel(value) {
+  return SOURCE_LABELS[value] || displayLabel(value);
 }
 
 function badge(value, label = displayLabel(value)) {
@@ -130,7 +145,7 @@ function render(result) {
       ${parallelOnly.length ? `<p>Parallel citations: ${parallelOnly.map((citation) => esc(citation)).join("; ")}</p>` : ""}
       <p>Context: ${context}</p>
       <p>Canonical: ${esc(item.canonical_name || "—")} ${item.case_id ? `(${esc(item.case_id)})` : ""}</p>
-      <p>Source: ${badge(item.source_status, displayLabel(item.source_status))}<br>${sourceLink(item)}<br>Link: ${badge(item.link_status, linkLabel)}</p>
+      <p>Source: ${badge(item.source_status, sourceLabel(item.source_status))}<br>${sourceLink(item)}<br>Link: ${badge(item.link_status, linkLabel)}</p>
       <p>Existence: ${badge(item.existence_status)}<br>Name: ${badge(item.name_status)}<br>Rule: ${badge(item.rule_support)}${item.rule_confidence != null ? ` (${esc(item.rule_confidence)})` : ""}</p>
       ${item.explanation ? `<p>${esc(item.explanation)}</p>` : ""}
       ${item.needs_human_review ? '<p class="review-required">Human review required</p>' : ""}
