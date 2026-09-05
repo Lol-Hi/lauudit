@@ -1,4 +1,11 @@
 (() => {
+  let lastSelection = null;
+  let dynamicSelectionEnabled = false;
+  let selectionTimer = null;
+  let selectionSequence = 0;
+  let lastSubmittedSignature = "";
+  const dynamicSelectionRanges = new Map();
+
   function visible(element) {
     const style = window.getComputedStyle(element);
     const box = element.getBoundingClientRect();
@@ -18,33 +25,165 @@
     return {response_text: responseText, links, page_url: location.href, user_query: null, jurisdiction: "Singapore", as_of_date: new Date().toISOString().slice(0, 10)};
   }
 
-  function highlight(results) {
-    const byText = new Map(results.map((item) => [item.raw_text, item.status]));
+  function rememberSelection() {
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount || !selection.toString().trim()) return;
+    lastSelection = {
+      range: selection.getRangeAt(0).cloneRange(),
+      text: selection.toString().trim(),
+    };
+  }
+
+  function currentSelectionRange() {
+    const activeSelection = window.getSelection();
+    const activeText = activeSelection?.toString().trim() || "";
+    if (activeText && activeSelection?.rangeCount) return activeSelection.getRangeAt(0);
+    return lastSelection?.range || null;
+  }
+
+  function intersects(range, node) {
+    try {
+      return range.intersectsNode(node);
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function collectSelectedResponse() {
+    const activeSelection = window.getSelection();
+    const activeText = activeSelection?.toString().trim() || "";
+    const range = currentSelectionRange();
+    const responseText = activeText || lastSelection?.text || "";
+    if (!responseText) return null;
+
+    const links = Array.from(document.querySelectorAll("a[href]"))
+      .filter((anchor) => visible(anchor) && range && intersects(range, anchor))
+      .map((anchor) => ({
+        text: (anchor.innerText || anchor.textContent || "").trim(),
+        href: anchor.href,
+        context: (anchor.closest("p, li, article, main, section") || anchor.parentElement || document.body).innerText.trim(),
+      }))
+      .filter((link) => link.text || link.href);
+    return {response_text: responseText, links, page_url: location.href, user_query: null, jurisdiction: "Singapore", as_of_date: new Date().toISOString().slice(0, 10)};
+  }
+
+  function highlightTone(status) {
+    const value = String(status ?? "").trim().toUpperCase();
+    if (["VERIFIED_EXISTS", "SUPPORTED", "LINK_CONFIRMS_CASE"].includes(value)) return "verified";
+    if (["UNCERTAIN", "UNABLE_TO_EVALUATE", "AMBIGUOUS_MATCH", "SOURCE_UNAVAILABLE", "NO_LINK_AVAILABLE"].includes(value)) return "uncertain";
+    if (value.includes("MISMATCH") || value.includes("NOT_FOUND") || value.includes("UNSUPPORTED") || value.includes("BROKEN") || value.includes("DIFFERENT_CASE") || value.includes("SEARCH_RESULTS")) return "error";
+    return "uncertain";
+  }
+
+  function clearHighlights() {
+    if (!window.CSS?.highlights) return;
+    ["lca-verified", "lca-uncertain", "lca-error"].forEach((name) => window.CSS.highlights.delete(name));
+  }
+
+  function installHighlightStyles() {
+    if (document.getElementById("lauudit-highlight-styles")) return;
+    const style = document.createElement("style");
+    style.id = "lauudit-highlight-styles";
+    style.textContent = `
+      ::highlight(lca-verified) { background-color: rgba(34, 197, 94, .35); }
+      ::highlight(lca-uncertain) { background-color: rgba(250, 204, 21, .45); }
+      ::highlight(lca-error) { background-color: rgba(248, 113, 113, .4); }
+      ::highlight(lca-selection) { background-color: rgba(59, 130, 246, .28); }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function findTextRanges(raw) {
+    if (!raw || !document.body) return [];
+    const ranges = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    const nodes = [];
-    while (walker.nextNode()) nodes.push(walker.currentNode);
-    nodes.forEach((node) => {
-      if (!node.nodeValue.trim() || node.parentElement.closest("script, style, textarea, input, button")) return;
-      let current = node.nodeValue;
-      const fragment = document.createDocumentFragment();
-      let changed = false;
-      byText.forEach((status, raw) => {
-        const offset = current.indexOf(raw);
-        if (offset < 0) return;
-        if (offset) fragment.appendChild(document.createTextNode(current.slice(0, offset)));
-        const mark = document.createElement("mark");
-        mark.className = status === "VERIFIED_EXISTS" ? "lca-verified" : (status.includes("UNCERTAIN") || status.includes("AMBIGUOUS") ? "lca-uncertain" : "lca-error");
-        mark.textContent = raw;
-        mark.title = status;
-        fragment.appendChild(mark);
-        current = current.slice(offset + raw.length);
-        changed = true;
-      });
-      if (changed) {
-        if (current) fragment.appendChild(document.createTextNode(current));
-        node.parentNode.replaceChild(fragment, node);
+    while (walker.nextNode()) {
+      const node = walker.currentNode;
+      if (!node.nodeValue.trim() || node.parentElement?.closest("script, style, textarea, input, button")) continue;
+      let offset = 0;
+      while ((offset = node.nodeValue.indexOf(raw, offset)) !== -1) {
+        const range = document.createRange();
+        range.setStart(node, offset);
+        range.setEnd(node, offset + raw.length);
+        ranges.push(range);
+        offset += raw.length;
+      }
+    }
+    return ranges;
+  }
+
+  function highlight(results) {
+    clearHighlights();
+    if (!window.CSS?.highlights || typeof window.Highlight !== "function") return;
+    installHighlightStyles();
+
+    const rangesByTone = new Map([
+      ["verified", []],
+      ["uncertain", []],
+      ["error", []],
+    ]);
+    const byText = new Map(results.map((item) => [item.raw_text, item.status]));
+    byText.forEach((status, raw) => {
+      rangesByTone.get(highlightTone(status)).push(...findTextRanges(raw));
+    });
+    rangesByTone.forEach((ranges, tone) => {
+      if (ranges.length) window.CSS.highlights.set(`lca-${tone}`, new window.Highlight(...ranges));
+    });
+  }
+
+  function renderDynamicSelectionHighlight() {
+    if (!window.CSS?.highlights || typeof window.Highlight !== "function") return;
+    installHighlightStyles();
+    const ranges = Array.from(dynamicSelectionRanges.values()).filter((range) => {
+      try {
+        return range.collapsed === false;
+      } catch (_error) {
+        return false;
       }
     });
+    if (ranges.length) {
+      window.CSS.highlights.set("lca-selection", new window.Highlight(...ranges));
+    } else {
+      window.CSS.highlights.delete("lca-selection");
+    }
+  }
+
+  function selectionSignature(payload, range) {
+    const container = range?.commonAncestorContainer;
+    const element = container?.nodeType === Node.ELEMENT_NODE ? container : container?.parentElement;
+    return `${payload.response_text}::${element?.textContent?.slice(0, 120) || ""}:${range?.startOffset || 0}:${range?.endOffset || 0}`;
+  }
+
+  function submitDynamicSelection() {
+    if (!dynamicSelectionEnabled) return;
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount || !selection.toString().trim()) return;
+    const payload = collectSelectedResponse();
+    const range = currentSelectionRange();
+    if (!payload || !range) return;
+
+    const signature = selectionSignature(payload, range);
+    if (signature === lastSubmittedSignature) return;
+    lastSubmittedSignature = signature;
+    const selectionId = `selection-${Date.now()}-${++selectionSequence}`;
+    dynamicSelectionRanges.set(selectionId, range.cloneRange());
+    renderDynamicSelectionHighlight();
+    chrome.runtime.sendMessage({type: "SELECTION_BLOCK_READY", selection_id: selectionId, payload});
+  }
+
+  function setDynamicSelectionMode(enabled) {
+    dynamicSelectionEnabled = enabled;
+    lastSubmittedSignature = "";
+    clearTimeout(selectionTimer);
+    selectionTimer = null;
+    if (!enabled) {
+      dynamicSelectionRanges.clear();
+      if (window.CSS?.highlights) window.CSS.highlights.delete("lca-selection");
+    } else {
+      dynamicSelectionRanges.clear();
+      renderDynamicSelectionHighlight();
+    }
+    return {enabled: dynamicSelectionEnabled};
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -52,11 +191,30 @@
       sendResponse(collectResponse());
       return true;
     }
+    if (message.type === "COLLECT_SELECTED_RESPONSE") {
+      const payload = collectSelectedResponse();
+      sendResponse(payload ? {ok: true, payload} : {ok: false, error: "Select some response text before auditing."});
+      return true;
+    }
+    if (message.type === "SET_DYNAMIC_SELECTION_MODE") {
+      sendResponse(setDynamicSelectionMode(Boolean(message.enabled)));
+      return true;
+    }
     if (message.type === "HIGHLIGHT_RESULTS") {
       highlight(message.results || []);
       sendResponse({ok: true});
       return true;
     }
+  });
+
+  document.addEventListener("selectionchange", () => {
+    rememberSelection();
+    if (!dynamicSelectionEnabled) return;
+    clearTimeout(selectionTimer);
+    selectionTimer = setTimeout(submitDynamicSelection, 450);
+  });
+  document.addEventListener("mouseup", () => {
+    if (dynamicSelectionEnabled) setTimeout(submitDynamicSelection, 0);
   });
 })();
 
