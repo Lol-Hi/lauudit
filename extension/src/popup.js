@@ -202,9 +202,13 @@ auditButton.addEventListener("click", () => {
   state.textContent = "Collecting the active page…";
   results.innerHTML = "";
   chrome.runtime.sendMessage({type: "AUDIT_ACTIVE_TAB"}, (message) => {
-    if (chrome.runtime.lastError || !message || !message.ok) {
+    const runtimeError = chrome.runtime.lastError?.message;
+    const backendError = message?.error;
+    if (runtimeError || !message || !message.ok) {
       auditButton.disabled = false;
-      state.textContent = "Backend unavailable. Start Lauudit locally and try again.";
+      state.textContent = runtimeError || backendError
+        ? `Audit failed: ${runtimeError || backendError}`
+        : "Backend unavailable at http://127.0.0.1:8000. Start Lauudit locally and try again.";
       return;
     }
     auditButton.disabled = false;
