@@ -86,6 +86,7 @@ function renderSummary(result) {
   const captureWarnings = Array.isArray(capture.warnings) && capture.warnings.length
     ? `Capture warnings: ${esc(capture.warnings.map(displayLabel).join(", "))}`
     : "";
+  const captureRoot = capture.root ? `Capture root: ${esc(capture.root)}` : "";
   overallStatus.className = `overall ${toneForStatus(result.overall_status)}`;
   overallStatus.innerHTML = `<span class="overall-label">Overall status</span><strong>${esc(result.overall_status || "UNKNOWN")}</strong>`;
 
@@ -97,6 +98,7 @@ function renderSummary(result) {
     result.corpus_notes ? `Corpus notes: ${esc(result.corpus_notes)}` : "",
     result.corpus_completeness ? "A corpus miss is not proof that a case does not exist." : "",
     captureStatus,
+    captureRoot,
     captureWarnings,
   ].filter(Boolean).map((value) => `<span>${value}</span>`).join("");
 

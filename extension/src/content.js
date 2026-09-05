@@ -21,6 +21,8 @@
   ].join(",");
   const POSITIVE_HINTS = /(answer|response|result|content|message|conversation|chat|output|completion|prose)/;
   const NEGATIVE_HINTS = /(source|sources|steps|navigation|sidebar|menu|toolbar|header|footer|citation-list|reference-list)/;
+  const LEGAL_CITATION_HINT = /\[(?:19|20)\d{2}\]\s*(?:SGCA(?:\(A\))?|SGHC(?:\(A\))?|SGDC|SGMC|\d+\s+SLR)\s*\d+/gi;
+  const CASE_NAME_HINT = /\b[A-Z][A-Za-z'’().&/-]{1,}(?:\s+[A-Za-z0-9'’().&/-]+){0,12}\s+v\.?\s+/g;
 
   function visible(element) {
     if (!element || element.nodeType !== Node.ELEMENT_NODE) return false;
@@ -123,6 +125,8 @@
     const descendantLabels = [element, ...descendantElements(element)].map(elementLabel).join(" ");
     const positiveHints = (label.match(POSITIVE_HINTS) || []).length;
     const negativeHints = (descendantLabels.match(NEGATIVE_HINTS) || []).length;
+    const citationCount = (text.match(LEGAL_CITATION_HINT) || []).length;
+    const caseNameCount = (text.match(CASE_NAME_HINT) || []).length;
     const linkTextLength = anchors.reduce((total, anchor) => total + nodeText(anchor).length, 0);
     const linkDensity = text.length ? linkTextLength / text.length : 0;
     const role = element.getAttribute("role") || "";
@@ -137,6 +141,8 @@
       control_count: controls,
       positive_hints: positiveHints,
       negative_hints: negativeHints,
+      citation_count: citationCount,
+      case_name_count: caseNameCount,
       semantic_boost: semanticBoost,
       label: label.slice(0, 200),
     };
@@ -149,11 +155,12 @@
       + Math.min(metrics.heading_count, 8) * 18
       + Math.min(metrics.paragraph_count, 40) * 3;
     const semanticScore = metrics.semantic_boost * 140 + metrics.positive_hints * 90;
+    const legalReferenceScore = metrics.citation_count * 85 + metrics.case_name_count * 25;
     const noisePenalty = metrics.negative_hints * 180
       + Math.max(0, metrics.link_density - 0.2) * 220
       + Math.max(0, metrics.control_count - 2) * 15;
     const bodyPenalty = element === document.body ? 650 : 0;
-    return Number((sizeScore + structureScore + semanticScore - noisePenalty - bodyPenalty).toFixed(3));
+    return Number((sizeScore + structureScore + semanticScore + legalReferenceScore - noisePenalty - bodyPenalty).toFixed(3));
   }
 
   function candidateReason(metrics, element) {
@@ -162,6 +169,7 @@
     if (metrics.positive_hints) reasons.push("answer-like-label");
     if (metrics.block_count >= 2) reasons.push("structured-text");
     if (metrics.heading_count) reasons.push("contains-headings");
+    if (metrics.citation_count) reasons.push("contains-legal-citations");
     if (metrics.negative_hints) reasons.push("contains-exclusion-hints");
     if (element === document.body) reasons.push("document-body-fallback");
     return reasons;
@@ -172,7 +180,7 @@
     const candidates = [document.body, ...elements.filter((element) => element.matches?.(CANDIDATE_SELECTOR))];
     const structural = elements.filter((element) => /^(ARTICLE|MAIN|SECTION|DIV|LI|BLOCKQUOTE|PRE)$/.test(element.tagName))
       .filter((element) => element.childElementCount > 0 || nodeText(element).length >= 160)
-      .slice(0, 180);
+      .slice(0, 500);
     candidates.push(...structural);
     return candidates.filter((element, index, values) => element && values.indexOf(element) === index);
   }
@@ -190,9 +198,15 @@
     if (!ranked.length) {
       return {root: fallback, ranked: [], confidence: 0.2, warnings: ["NO_CREDIBLE_RESPONSE_REGION"]};
     }
-    const best = ranked[0];
-    const second = ranked[1];
-    const gap = second ? best.score - second.score : 240;
+    let best = ranked[0];
+    let forcedCitationRegion = false;
+    const citationCandidates = ranked.filter((candidate) => candidate.metrics.citation_count > 0 && candidate.metrics.case_name_count > 0);
+    if (best.metrics.citation_count === 0 && citationCandidates.length) {
+      best = citationCandidates[0];
+      forcedCitationRegion = true;
+    }
+    const second = ranked.find((candidate) => candidate !== best);
+    const gap = second ? Math.max(0, best.score - second.score) : 240;
     let confidence = Math.max(0.2, Math.min(0.99, 0.5 + gap / 500));
     if (best.element === document.body) confidence *= 0.65;
     if (best.metrics.negative_hints) confidence *= 0.75;
@@ -200,6 +214,7 @@
     if (best.element === document.body) warnings.push("BODY_FALLBACK_SELECTED");
     if (second && gap < 75) warnings.push("MULTIPLE_CANDIDATE_REGIONS");
     if (best.metrics.negative_hints) warnings.push("SELECTED_REGION_HAS_EXCLUSION_HINTS");
+    if (forcedCitationRegion) warnings.push("CITATION_BEARING_REGION_SELECTED");
     return {root: best.element, ranked, confidence: Number(confidence.toFixed(3)), warnings};
   }
 
