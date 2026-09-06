@@ -31,6 +31,7 @@ const auditResult = {
 
 describe("popup and background message flow", () => {
   let sendMessage;
+  let runtimeListener;
 
   beforeAll(async () => {
     document.body.innerHTML = `
@@ -57,7 +58,7 @@ describe("popup and background message flow", () => {
       runtime: {
         sendMessage,
         lastError: null,
-        onMessage: {addListener: vi.fn()},
+        onMessage: {addListener: vi.fn((listener) => { runtimeListener = listener; })},
       },
     };
     globalThis.navigator.clipboard = {writeText: vi.fn()};
@@ -90,5 +91,21 @@ describe("popup and background message flow", () => {
     }), expect.any(Function));
     expect(document.getElementById("results").textContent).toContain("Confirmed live judgment");
     expect(document.getElementById("results").textContent).toContain("name: match");
+  });
+
+  it("renders the asynchronous live upgrade after the local result", () => {
+    runtimeListener({
+      type: "AUDIT_LIVE_UPDATED",
+      base_audit_id: "audit-test",
+      result: {
+        ...auditResult,
+        audit_id: "audit-test-live",
+        verification_authority: "elitigation",
+        citations: [{...auditResult.citations[0], status: "LIVE_VERIFIED", source_status: "OFFICIAL_ELITIGATION_SOURCE"}],
+      },
+    });
+
+    expect(document.getElementById("state").textContent).toContain("Live verification completed audit-test-live");
+    expect(document.getElementById("summary").textContent).toContain("Verification authority: elitigation");
   });
 });

@@ -36,6 +36,7 @@ class AuditRequest(BaseModel):
     user_query: Optional[str] = None
     jurisdiction: str = "Singapore"
     as_of_date: Optional[str] = None
+    enable_live_verification: Optional[bool] = None
 
 
 class ExpectedMetadata(BaseModel):

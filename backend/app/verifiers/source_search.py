@@ -27,6 +27,7 @@ class SearchResult:
     attempted: bool
     query: str = ""
     candidates: list[SearchCandidate] = field(default_factory=list)
+    request_failed: bool = False
 
 
 class _ElitigationSearchParser(HTMLParser):
@@ -125,12 +126,12 @@ def search_elitigation(
     try:
         with client_factory(
             follow_redirects=True,
-            timeout=10.0,
+            timeout=3.0,
             headers={"User-Agent": "Lauudit-Verifier/0.1 (read-only citation search)"},
         ) as client:
             response = client.get(SEARCH_URL, params=params)
     except httpx.HTTPError:
-        return SearchResult(attempted=True, query=query)
+        return SearchResult(attempted=True, query=query, request_failed=True)
 
     if not response.is_success or len(response.content) > MAX_SEARCH_RESPONSE_BYTES:
         return SearchResult(attempted=True, query=query)

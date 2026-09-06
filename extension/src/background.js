@@ -30,11 +30,45 @@ function pageAccessError(error) {
 }
 
 const dynamicSelectionTabs = new Map();
+const auditSessions = new Map();
 
-chrome.tabs.onRemoved.addListener((tabId) => dynamicSelectionTabs.delete(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  dynamicSelectionTabs.delete(tabId);
+  auditSessions.delete(tabId);
+});
 
 function notifyPanel(message) {
   chrome.runtime.sendMessage(message).catch(() => {});
+}
+
+async function postAudit(payload, enableLiveVerification) {
+  const response = await fetch(BACKEND_URL, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({...payload, enable_live_verification: enableLiveVerification}),
+  });
+  if (!response.ok) throw new Error(`Backend returned HTTP ${response.status}. Is it running?`);
+  return response.json();
+}
+
+async function sendAuditHighlights(tabId, result) {
+  await chrome.tabs.sendMessage(tabId, {type: "HIGHLIGHT_RESULTS", results: result.citations}).catch(() => {});
+}
+
+async function refreshLiveAudit(tabId, payload, baseAuditId, sessionId) {
+  try {
+    notifyPanel({type: "AUDIT_PROGRESS", phase: "live_verification", base_audit_id: baseAuditId});
+    const result = await postAudit(payload, true);
+    if (auditSessions.get(tabId) !== sessionId) return;
+    await sendAuditHighlights(tabId, result);
+    notifyPanel({type: "AUDIT_LIVE_UPDATED", base_audit_id: baseAuditId, result});
+  } catch (error) {
+    notifyPanel({
+      type: "AUDIT_LIVE_UPDATE_ERROR",
+      base_audit_id: baseAuditId,
+      error: error.message || String(error),
+    });
+  }
 }
 
 async function setDynamicSelectionMode(tabId, enabled) {
@@ -54,14 +88,31 @@ async function auditDynamicSelection(tabId, selectionId, payload) {
   if (!session?.enabled) return;
   notifyPanel({type: "DYNAMIC_SELECTION_AUDIT_STARTED", tab_id: tabId, selection_id: selectionId});
   try {
-    const response = await fetch(BACKEND_URL, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
-    if (!response.ok) throw new Error(`Backend returned HTTP ${response.status}. Is it running?`);
-    const result = await response.json();
+    const result = await postAudit(payload, false);
     const currentSession = dynamicSelectionTabs.get(tabId);
     if (!currentSession?.enabled) return;
-    currentSession.audits.push({selection_id: selectionId, result});
-    notifyPanel({type: "DYNAMIC_SELECTION_AUDIT_UPDATED", tab_id: tabId, selection_id: selectionId, result});
-    await chrome.tabs.sendMessage(tabId, {type: "HIGHLIGHT_RESULTS", results: result.citations}).catch(() => {});
+    currentSession.audits.push({selection_id: selectionId, result, live_pending: true});
+    notifyPanel({type: "DYNAMIC_SELECTION_AUDIT_UPDATED", tab_id: tabId, selection_id: selectionId, result, live_pending: true});
+    await sendAuditHighlights(tabId, result);
+    try {
+      const liveResult = await postAudit(payload, true);
+      const liveSession = dynamicSelectionTabs.get(tabId);
+      if (!liveSession?.enabled) return;
+      const audit = liveSession.audits.find((item) => item.selection_id === selectionId);
+      if (audit) {
+        audit.result = liveResult;
+        audit.live_pending = false;
+      }
+      await sendAuditHighlights(tabId, liveResult);
+      notifyPanel({type: "DYNAMIC_SELECTION_AUDIT_UPDATED", tab_id: tabId, selection_id: selectionId, result: liveResult, live_pending: false});
+    } catch (error) {
+      notifyPanel({
+        type: "DYNAMIC_SELECTION_LIVE_UPDATE_ERROR",
+        tab_id: tabId,
+        selection_id: selectionId,
+        error: error.message || String(error),
+      });
+    }
   } catch (error) {
     notifyPanel({type: "DYNAMIC_SELECTION_AUDIT_ERROR", tab_id: tabId, selection_id: selectionId, error: error.message || String(error)});
   }
@@ -123,13 +174,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!tab || !tab.id) throw new Error("No active tab is available.");
       notifyPanel({type: "AUDIT_PROGRESS", phase: "collecting"});
       const payload = await getPagePayload(tab.id);
+      const sessionId = `audit-session-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      auditSessions.set(tab.id, sessionId);
       notifyPanel({type: "AUDIT_PROGRESS", phase: "sending"});
-      const response = await fetch(BACKEND_URL, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload)});
-      if (!response.ok) throw new Error(`Backend returned HTTP ${response.status}. Is it running?`);
+      const result = await postAudit(payload, false);
       notifyPanel({type: "AUDIT_PROGRESS", phase: "receiving"});
-      const result = await response.json();
-      await chrome.tabs.sendMessage(tab.id, {type: "HIGHLIGHT_RESULTS", results: result.citations}).catch(() => {});
-      sendResponse({ok: true, result});
+      sendResponse({ok: true, result, live_pending: true});
+      await sendAuditHighlights(tab.id, result);
+      refreshLiveAudit(tab.id, payload, result.audit_id, sessionId);
     } catch (error) {
       sendResponse({ok: false, error: error.message || String(error)});
     }
