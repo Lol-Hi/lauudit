@@ -3,6 +3,8 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
+import httpx
+
 from backend.app.config import settings
 from backend.app.corpus.database import connect, current_corpus, initialize_schema
 from backend.app.extractors.citations import extract_citations
@@ -16,17 +18,31 @@ from backend.app.verifiers.rule_support import evaluate_rule_support, unable_to_
 from backend.app.verifiers.url_classifier import classify_url
 from backend.app.verifiers.live_source import verify_live_source
 from backend.app.verifiers.live_cache import cached_verify_live_candidate
+from backend.app.verifiers.circuit_breaker import CircuitBreaker
 from backend.app.verifiers.source_search import search_elitigation
 from backend.app.normalization.case_names import name_matches_canonical
 
 
+elitigation_breaker = CircuitBreaker(failure_threshold=3, cooldown_seconds=60.0)
+
+
+def _record_live_verification_outcome(result: LiveVerifyResponse) -> None:
+    """Trip only for transport failures, not valid negative verification results."""
+    if result.status == "LIVE_SOURCE_UNAVAILABLE" and result.reason.startswith("Live fetch failed:"):
+        elitigation_breaker.record_failure()
+    else:
+        elitigation_breaker.record_success()
+
+
 def _verified_live_candidate(url: str, expected: dict) -> LiveVerifyResponse:
-    return cached_verify_live_candidate(url, expected, verifier=verify_live_source)
+    result = cached_verify_live_candidate(url, expected, verifier=verify_live_source)
+    _record_live_verification_outcome(result)
+    return result
 
 
 def _resolve_elitigation(citation, href: Optional[str], url_result, *, enabled: bool):
     """Resolve the cited judgment from eLitigation before consulting local data."""
-    if not enabled:
+    if not enabled or elitigation_breaker.is_open():
         return None, None, None
 
     expected = {}
@@ -43,26 +59,34 @@ def _resolve_elitigation(citation, href: Optional[str], url_result, *, enabled: 
     live_verification = None
     source_discovery = None
     resolved_url = None
-    if url_result.status == "OFFICIAL_ELITIGATION_SOURCE":
-        live_verification = _verified_live_candidate(url_result.normalized_url, expected)
-        source_discovery = "DIRECT_ELITIGATION_LINK"
-        resolved_url = live_verification.final_url or url_result.normalized_url
+    try:
+        if url_result.status == "OFFICIAL_ELITIGATION_SOURCE":
+            live_verification = _verified_live_candidate(url_result.normalized_url, expected)
+            source_discovery = "DIRECT_ELITIGATION_LINK"
+            resolved_url = live_verification.final_url or url_result.normalized_url
 
-    if not live_verification or not live_verification.source_verified:
-        search_result = search_elitigation(citation.provided_name, citation.provided_citation)
-        candidates = []
-        for candidate in search_result.candidates:
-            candidate_result = _verified_live_candidate(candidate.url, expected)
-            candidates.append(candidate_result)
-            if candidate_result.source_verified:
-                live_verification = candidate_result
-                resolved_url = candidate_result.final_url or candidate.url
+        if not live_verification or not live_verification.source_verified:
+            search_result = search_elitigation(citation.provided_name, citation.provided_citation)
+            if search_result.request_failed:
+                elitigation_breaker.record_failure()
+            else:
+                elitigation_breaker.record_success()
+            candidates = []
+            for candidate in search_result.candidates:
+                candidate_result = _verified_live_candidate(candidate.url, expected)
+                candidates.append(candidate_result)
+                if candidate_result.source_verified:
+                    live_verification = candidate_result
+                    resolved_url = candidate_result.final_url or candidate.url
+                    source_discovery = "OFFICIAL_ELITIGATION_SEARCH"
+                    break
+            if live_verification is None and candidates:
+                live_verification = candidates[0]
+                resolved_url = live_verification.final_url
                 source_discovery = "OFFICIAL_ELITIGATION_SEARCH"
-                break
-        if live_verification is None and candidates:
-            live_verification = candidates[0]
-            resolved_url = live_verification.final_url
-            source_discovery = "OFFICIAL_ELITIGATION_SEARCH"
+    except (TimeoutError, ConnectionError, httpx.HTTPError):
+        elitigation_breaker.record_failure()
+        return None, None, None
 
     return live_verification, resolved_url, source_discovery
 

@@ -380,7 +380,7 @@ def verify_live_source(
     source_url: str,
     expected: dict,
     *,
-    timeout: float = 10.0,
+    timeout: float = 3.0,
     client_factory: Callable[..., httpx.Client] = _client_fetcher,
 ) -> LiveVerificationResult:
     """Verify one approved source without retaining its document.
