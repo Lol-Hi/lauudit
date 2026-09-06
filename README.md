@@ -14,9 +14,11 @@ external LLM API is required at runtime.
   combines deterministic extraction with official eLitigation search and direct
   metadata matching to detect fabricated, mismatched, and unresolvable
   citations. This does not prove that a legal proposition is correct.
-- [ ] **Contextual accuracy: understand why a case matters.** Live mode
-  authenticates the source but deliberately reports `UNABLE_TO_EVALUATE` for
-  proposition-to-holding support until that evidence path is implemented.
+- [x] **Contextual accuracy: understand why a case matters.**
+  The `llm_judge` evaluator classifies a retrieved paragraph as ratio, obiter,
+  overgeneralized, contradicted, or unsupported, with quote grounding and a
+  deterministic fallback. Live eLitigation pages supply the contextual
+  evidence directly.
 - [ ] **Scalability: evaluate thousands of queries daily.** The current path is
   synchronous and has not been load-tested or given production queueing,
   caching, rate limiting, and monitoring.
@@ -43,15 +45,16 @@ The system has four boundaries:
    URL classification, source resolution, metadata comparison, and explicit
    uncertainty statuses.
 4. **Verification authority** — with `ENABLE_LIVE_VERIFICATION=true` (the
-   default), the backend does not open or consult the local corpus. It checks a
-   direct allowlisted source or performs a bounded exact search on official
-   eLitigation, then verifies the discovered judgment metadata. With the flag
-   set to `false`, the optional SQLite corpus provides offline existence,
-   link, and conservative rule-support checks. A local corpus miss is never
-   treated as proof that a judgment does not exist.
+   default), the backend checks a direct allowlisted source or performs a
+   bounded exact search on official eLitigation, then verifies the discovered
+   judgment metadata, and can extract contextual paragraphs from that same
+   verified live page. The optional SQLite corpus is used only by offline mode
+   and regression tests. A local corpus miss is never treated as proof that a
+   judgment does not exist.
 
-For the detailed component map, see
-[`docs/architecture.md`](docs/architecture.md).
+For the presentation-friendly overview, see
+[`docs/architecture-overview.md`](docs/architecture-overview.md). For the
+detailed component map, see [`docs/architecture.md`](docs/architecture.md).
 
 ## Setup
 
@@ -110,12 +113,78 @@ curl -s http://127.0.0.1:8000/api/v1/audit \
 
 The response identifies `verification_authority` as `elitigation` in the
 default live mode or `local_corpus` in offline mode. `RULE_EVALUATOR=heuristic`
-is used only by offline corpus mode; `local_model` is reserved for a future
-inference adapter and currently returns `UNABLE_TO_EVALUATE` rather than
-contacting a service.
+is the safe default for offline corpus mode. Set `RULE_EVALUATOR=llm_judge` to
+enable the optional rubric-prompted contextual judge. It retrieves the best few
+relevant paragraphs from the verified live eLitigation judgment, requires the
+judge to quote the supplied evidence verbatim, and reports contextual evidence.
+HTML judgments and text-based eLitigation PDFs are parsed in memory; PDF page
+provenance is retained while only bounded excerpts are sent to the model. Missing
+credentials, network failures, invalid responses, or failed grounding produce
+an explicit unavailable result; live mode has no local-corpus fallback.
+The full captured legal-AI response is also supplied to the judge, allowing it
+to connect top-of-answer claims with LawNet-style references placed elsewhere
+without assuming that citation layout for every answer.
 
-Live verification is metadata-only and read-only. Direct URLs are fetched only
-when their host is allowlisted. Citations without links use bounded exact
+The optional judge reads `OPENAI_API_KEY`, `LLM_MODEL` (or `OPENAI_MODEL`),
+`OPENAI_BASE_URL`, and `LLM_TIMEOUT_SECONDS` from the repository-root `.env`
+file. Keep `.env` out of source control; `.env.example` is the safe template.
+To prepare a fine-tuning file
+from labelled examples, run:
+
+```bash
+python scripts/agents/prepare_finetune.py
+```
+
+The checked-in `data/benchmarks/interpretation_gold.jsonl` contains 100
+balanced synthetic-demo examples (20 per label), and
+`data/benchmarks/interpretation_candidates.jsonl` contains the corresponding
+unlabelled review candidates. Generate them again with:
+
+```bash
+python scripts/agents/adversarial_generator.py --count 20
+python scripts/agents/prepare_finetune.py
+```
+
+These examples still require review and should not be treated as labels for
+real judgments. The submission helper is dry-run by default; after review,
+`python scripts/agents/submit_finetune.py --submit` uploads the JSONL and
+creates a fine-tuning job. Fine-tuning is not started by the audit service.
+
+### LoRA training path
+
+When hosted OpenAI fine-tuning is unavailable, train a local/cloud adapter with
+the optional stack in `requirements-finetune.txt`. The script creates a
+deterministic, label-stratified 80/10/10 split and can prepare it without
+loading a model:
+
+```bash
+python3.10 -m venv .venv-lora
+source .venv-lora/bin/activate
+pip install -r requirements-finetune.txt
+python scripts/agents/train_lora.py --prepare-only
+```
+
+The default `Qwen/Qwen3-0.6B` is a small smoke-test model. For a real run on a
+GPU, select a stronger open-weight base such as `openai/gpt-oss-20b`; use
+`--use-4bit` only on a CUDA machine with bitsandbytes support:
+
+```bash
+python scripts/agents/train_lora.py \
+  --base-model openai/gpt-oss-20b \
+  --use-4bit \
+  --gradient-checkpointing \
+  --output-dir artifacts/lauudit-gpt-oss-lora
+```
+
+Review the held-out split and `training_metrics.json` before serving the
+adapter. Serve the base model plus the saved adapter through an
+OpenAI-compatible runtime, then set `OPENAI_BASE_URL` to that local/cloud
+`/v1` endpoint and `LLM_MODEL` to the served adapter name. Keep the existing
+grounding guardrail and heuristic fallback enabled.
+
+Live verification is read-only and ephemeral. Direct URLs are fetched only
+when their host is allowlisted; HTML judgments and text-based eLitigation PDFs
+are supported without persisting source content. Citations without links use bounded exact
 eLitigation search followed by direct judgment verification. Search pages,
 malformed URLs, unknown hosts, failed metadata matches, and ambiguous captures
 remain review-required findings. The explicit source-verification endpoint is
