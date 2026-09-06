@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import uuid
 from typing import Optional
 
@@ -103,11 +104,31 @@ def run_audit(request: AuditRequest) -> AuditResponse:
     extracted = extract_citations(response_for_extraction)
     known_cases = [] if live_authority else [dict(row) for row in connection.execute("SELECT * FROM cases").fetchall()]
     known_source_urls = [item["source_url"] for item in known_cases if item.get("source_url")]
+    citation_contexts = [
+        (citation, resolve_links(citation, request.links))
+        for citation in extracted
+    ]
+    citation_contexts = [
+        (citation, link_resolution, classify_url(link_resolution.href, known_source_urls))
+        for citation, link_resolution in citation_contexts
+    ]
+    live_resolutions = []
+    if live_authority and citation_contexts:
+        def resolve_live_context(context):
+            citation, link_resolution, url_result = context
+            return _resolve_elitigation(
+                citation,
+                link_resolution.href,
+                url_result,
+                enabled=True,
+            )
+
+        with ThreadPoolExecutor(max_workers=min(8, len(citation_contexts))) as pool:
+            live_resolutions = list(pool.map(resolve_live_context, citation_contexts))
+
     audits: list[CitationAudit] = []
-    for citation in extracted:
-        link_resolution = resolve_links(citation, request.links)
+    for index, (citation, link_resolution, url_result) in enumerate(citation_contexts):
         href = link_resolution.href
-        url_result = classify_url(href, known_source_urls)
         existence = ExistenceResult("SOURCE_UNAVAILABLE") if live_authority else (
             verify_parallel_existence(connection, citation.provided_name, citation.parallel_citations)
             if citation.parallel_citations
@@ -135,12 +156,7 @@ def run_audit(request: AuditRequest) -> AuditResponse:
         resolved_url = url_result.normalized_url
         supplied_url = url_result.normalized_url
         if live_authority:
-            live_verification, resolved_url, source_discovery = _resolve_elitigation(
-                citation,
-                href,
-                url_result,
-                enabled=True,
-            )
+            live_verification, resolved_url, source_discovery = live_resolutions[index]
             if resolved_url:
                 url_result = classify_url(resolved_url, [])
             if live_verification and live_verification.source_verified:
