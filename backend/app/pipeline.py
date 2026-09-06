@@ -15,12 +15,13 @@ from backend.app.verifiers.name_match import verify_name
 from backend.app.verifiers.rule_support import evaluate_rule_support, unable_to_evaluate
 from backend.app.verifiers.url_classifier import classify_url
 from backend.app.verifiers.live_source import verify_live_source
+from backend.app.verifiers.live_cache import cached_verify_live_candidate
 from backend.app.verifiers.source_search import search_elitigation
 from backend.app.normalization.case_names import name_matches_canonical
 
 
 def _verified_live_candidate(url: str, expected: dict) -> LiveVerifyResponse:
-    return LiveVerifyResponse(**verify_live_source(url, expected).__dict__)
+    return cached_verify_live_candidate(url, expected, verifier=verify_live_source)
 
 
 def _resolve_elitigation(citation, href: Optional[str], url_result, *, enabled: bool):

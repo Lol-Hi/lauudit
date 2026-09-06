@@ -11,5 +11,6 @@ setup(
         "uvicorn[standard]>=0.29,<1",
         "pydantic>=2.5,<3",
         "python-dotenv>=1.0,<2",
+        "cachetools>=5,<7",
     ],
 )
