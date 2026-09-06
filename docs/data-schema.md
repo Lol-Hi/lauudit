@@ -19,7 +19,7 @@ Audit evidence includes `paragraph`, optional `page`, `text`, `score`, and
 `text_source`. Page is null for plain-text evidence.
 
 Audit citation results also include `source_status`, `source_url_normalized`, and
-the optional `source_discovery` marker. These are offline URL provenance and
+the optional `source_discovery` marker. These are local URL provenance and
 discovery signals. `OFFICIAL_ELITIGATION_SOURCE` and
 `OFFICIAL_JUDICIARY_SOURCE` identify an official domain;
 `TRUSTED_PUBLISHER_SOURCE` identifies a Singapore Law Watch publisher URL.

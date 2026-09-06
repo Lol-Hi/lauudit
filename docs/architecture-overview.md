@@ -14,12 +14,12 @@ Legal-AI answer in the browser
        the visible answer
               |
               v
-       Local audit service
-   finds and separates citations
+     Local audit service
+   verifies the citations
               |
               v
- Official eLitigation verification
-       checks each citation
+ Official eLitigation check
+       confirms sources
               |
               v
        Results in the side panel
@@ -44,7 +44,8 @@ computer. The service:
 
 - finds case names and legal citation numbers;
 - connects each citation to the relevant text in the answer; and
-- creates a separate result for every citation occurrence.
+- creates a separate result for every citation occurrence; and
+- verifies sources through the official live authority.
 
 Keeping this work local means that the normal audit flow does not require a
 cloud database or an external AI service.
@@ -60,10 +61,11 @@ For each citation, the service may check:
 - whether the judgment exists;
 - whether the case name and citation match;
 - whether the answer's link points to the expected source; and
-- whether the cited judgment appears to support the nearby legal claim.
+- whether the source metadata matches the cited case.
 
 These checks are kept separate. Finding a real judgment does not, by itself,
-prove that the legal claim is correct.
+prove that the legal claim is correct. Contextual proposition-to-holding
+accuracy is not yet implemented.
 
 ### 4. Results and review
 
@@ -75,24 +77,37 @@ human review rather than being treated as definite failures.
 
 1. The user selects **Audit response** in the extension.
 2. The extension captures the stable, visible answer and its links.
-3. The local service extracts the citations and the claims around them.
-4. The service verifies each citation against the official source.
-5. The side panel displays the results and explains which checks passed,
-   failed, or need review.
+3. The local service extracts the citations and verifies them against the
+   official source.
+4. The side panel displays the results and highlights the cited text.
 
 Live verification reads the source temporarily for the current audit. The
 browser page, judgment text, and source PDFs are not saved as part of that
 request.
 
-## Live mode and offline mode
+## Live verification
 
-Lauudit has two ways to work:
+Formal results require **live verification** against the official eLitigation
+source. The local SQLite collection is reserved for controlled implementation
+and regression work, not for standalone production results.
 
-- **Live mode (default):** checks citations against the official eLitigation
-  source. This is the mode used for the main authenticity demonstration.
-- **Offline mode:** checks against an optional local SQLite collection. This
-  is useful for development and repeatable tests, but a missing case in the
-  local collection does not prove that the case does not exist.
+## What changed for scalability
+
+The current MVP scalability target is thousands of audits per day at a modest
+peak rate. The recent increment makes the slowest part—the public-source
+network calls—more manageable:
+
+- requests stop waiting after three seconds;
+- a circuit breaker pauses repeated transport failures for 60 seconds;
+- successful live results are reused for one hour in a bounded process-local
+  cache;
+- citations in one audit are checked concurrently, up to eight at a time; and
+- live-result handling is asynchronous and does not require a second user
+  action.
+
+This is an MVP scalability achievement, not a claim of full production
+infrastructure. Shared caching, rate limiting, load testing, and distributed
+queueing are future deployment work.
 
 ## Trust boundaries and current scope
 
@@ -102,10 +117,11 @@ legal judgment. In particular:
 - a citation can be authentic while the AI's explanation is still wrong;
 - unclear page captures, unknown links, and uncertain source matches are
   surfaced for review;
-- contextual claim checking is an optional evidence-based step; and
-- the current request path is synchronous and has not yet been prepared for
-  production-scale traffic with queues, caching, rate limits, and monitoring.
+- contextual claim checking is not yet implemented; and
+- the current MVP has bounded, cached, concurrent live verification, while
+  full production infrastructure remains future work.
 
 The completed MVP focuses on detecting fabricated, mismatched, or
-unresolvable Singapore case citations. It also includes an optional path for
-checking whether a cited passage supports the surrounding claim.
+unresolvable Singapore case citations and delivering those checks quickly. It
+does not yet determine whether a cited passage supports the surrounding legal
+claim.
