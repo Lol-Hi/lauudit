@@ -215,6 +215,7 @@ chrome.runtime.onMessage.addListener((message) => {
       collecting: "Collecting the active page…",
       sending: "Sending the visible response to the local backend…",
       receiving: "Receiving the audit result…",
+      live_verification: "Local audit complete; confirming citations online…",
     };
     state.textContent = messages[message.phase] || "Processing audit…";
   }
@@ -228,6 +229,18 @@ chrome.runtime.onMessage.addListener((message) => {
   }
   if (message.type === "DYNAMIC_SELECTION_AUDIT_ERROR") {
     updateDynamicAudit(message.selection_id, {result: null, error: message.error});
+  }
+  if (message.type === "AUDIT_LIVE_UPDATED") {
+    if (lastAuditResult?.audit_id !== message.base_audit_id) return;
+    render(message.result);
+    state.textContent = `Live verification completed ${message.result.audit_id}`;
+  }
+  if (message.type === "AUDIT_LIVE_UPDATE_ERROR") {
+    if (lastAuditResult?.audit_id !== message.base_audit_id) return;
+    state.textContent = "Local audit completed; live verification is unavailable.";
+  }
+  if (message.type === "DYNAMIC_SELECTION_LIVE_UPDATE_ERROR") {
+    dynamicSelectionState.textContent = "Local selection audit completed; live verification is unavailable.";
   }
 });
 
@@ -257,7 +270,9 @@ auditButton.addEventListener("click", async () => {
       return;
     }
     auditButton.disabled = false;
-    state.textContent = `Completed ${message.result.audit_id}`;
+    state.textContent = message.live_pending
+      ? `Completed ${message.result.audit_id}; live verification pending…`
+      : `Completed ${message.result.audit_id}`;
     render(message.result);
   });
 });

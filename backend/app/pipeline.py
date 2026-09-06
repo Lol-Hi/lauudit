@@ -93,7 +93,7 @@ def _resolve_elitigation(citation, href: Optional[str], url_result, *, enabled: 
 
 
 def run_audit(request: AuditRequest) -> AuditResponse:
-    live_authority = settings.enable_live_verification
+    live_authority = settings.enable_live_verification and request.enable_live_verification is not False
     connection = None
     corpus = None
     if not live_authority:

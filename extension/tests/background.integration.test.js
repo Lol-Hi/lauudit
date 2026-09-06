@@ -68,13 +68,17 @@ describe("background online-verification integration contract", () => {
   });
 
   it("requests a stable page capture before sending an audit", async () => {
-    const auditResult = {
+    const localAuditResult = {
       audit_id: "audit-browser",
       summary: {total_citations: 1},
       citations: [],
     };
-    fetchMock = vi.fn(async (url) => {
-      if (url.endsWith("/audit")) return {ok: true, json: async () => auditResult};
+    const liveAuditResult = {...localAuditResult, audit_id: "audit-browser-live"};
+    fetchMock = vi.fn(async (url, options) => {
+      if (url.endsWith("/audit")) {
+        const body = JSON.parse(options.body);
+        return {ok: true, json: async () => body.enable_live_verification ? liveAuditResult : localAuditResult};
+      }
       return {ok: true, json: async () => ({})};
     });
     const {chrome, listener} = loadBackground(fetchMock);
@@ -93,13 +97,17 @@ describe("background online-verification integration contract", () => {
       listener({type: "AUDIT_ACTIVE_TAB"}, {}, resolve);
     });
 
-    expect(response).toEqual({ok: true, result: auditResult});
+    expect(response).toEqual({ok: true, result: localAuditResult, live_pending: true});
     expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(42, {type: "COLLECT_RESPONSE_STABLE"});
     expect(fetchMock).toHaveBeenCalledWith(
       "http://127.0.0.1:8000/api/v1/audit",
       expect.objectContaining({method: "POST"}),
     );
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject(payload);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({...payload, enable_live_verification: false});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/audit"))).toHaveLength(2);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({...payload, enable_live_verification: true});
+    expect(chrome.tabs.sendMessage).toHaveBeenCalledWith(42, {type: "HIGHLIGHT_RESULTS", results: []});
   });
 
   it("explains when the active page cannot be accessed", async () => {
